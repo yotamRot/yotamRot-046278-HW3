@@ -9,8 +9,8 @@
 #define WRAP_SIZE 32
 #define SHARED_MEM_USAGE 2048
 #define REGISTERS_PER_THREAD 32
-#define INVALID_IMAGE -1
-#define KILL_IMAGE -2
+#define INVALID_IMAGE -2
+#define KILL_IMAGE -1
 
 __device__ void prefix_sum(int arr[], int arr_size) {
     int tid = threadIdx.x;
