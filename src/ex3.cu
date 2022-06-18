@@ -249,15 +249,66 @@ public:
 
 class server_queues_context : public rdma_server_context {
 private:
-    std::unique_ptr<image_processing_server> server;
+    std::unique_ptr<queue_server> server;
+    
+    // cpu_gpu
+    struct ibv_mr *cpu_gpu_queue;
+    struct ibv_mr *cpu_gpu_mail_box;
+    // gpu_pcu
+    struct ibv_mr *gpu_cpu_queue;
+    struct ibv_mr *gpu_cpu_mail_box;
+
+
 
     /* TODO: add memory region(s) for CPU-GPU queues */
 
 public:
     explicit server_queues_context(uint16_t tcp_port) : rdma_server_context(tcp_port)
     {
-        /* TODO Initialize additional server MRs as needed. */
+ 
+         /* TODO Initialize additional server MRs as needed. */
+        server = create_queues_server(256);  
+        int mail_box_size =  server->cpu_to_gpu->N * sizeof(request);
 
+        // create memory regions
+        cpu_gpu_queue = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!cpu_gpu_queue) {
+            perror("ibv_reg_mr() failed for cpu_gpu_queue");
+            exit(1);
+        }
+
+        cpu_gpu_mail_box = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!cpu_gpu_queue) {
+            perror("ibv_reg_mr() failed for cpu_gpu_mail_box");
+            exit(1);
+        }
+
+        gpu_cpu_queue = ibv_reg_mr(pd, server->gpu_to_cpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!gpu_cpu_queue) {
+            perror("ibv_reg_mr() failed for gpu_cpu_queue");
+            exit(1);
+        }
+
+        gpu_cpu_mail_box = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_REMOTE_READ);
+        if (!cpu_gpu_queue) {
+            perror("ibv_reg_mr() failed for gpu_cpu_mail_box");
+            exit(1);
+        }
+
+        
+        send_over_socket(cpu_gpu_queue, sizeof(cpu_gpu_queue));
+        send_over_socket(server->cpu_to_gpu_buf, sizeof(server->cpu_to_gpu_buf));
+
+        send_over_socket(cpu_gpu_mail_box, sizeof(cpu_gpu_mail_box));
+        send_over_socket(server->cpu_to_gpu->_mailbox, sizeof(server->cpu_to_gpu->_mailbox));
+
+        send_over_socket(gpu_cpu_queue, sizeof(gpu_cpu_queue));
+        send_over_socket(server->gpu_to_cpu_buf, sizeof(server->gpu_to_cpu_buf));
+
+        send_over_socket(gpu_cpu_mail_box, sizeof(gpu_cpu_mail_box));
+        send_over_socket(server->gpu_to_cpu->_mailbox, sizeof(server->gpu_to_cpu->_mailbox));
+
+        send_over_socket(&mail_box_size, sizeof(mail_box_size));
         /* TODO Exchange rkeys, addresses, and necessary information (e.g.
          * number of queues) with the client */
     }
@@ -272,17 +323,43 @@ public:
         /* TODO simplified version of server_rpc_context::event_loop. As the
          * client use one sided operations, we only need one kind of message to
          * terminate the server at the end. */
+        struct ibv_wc wc;
+
+        // wait for end message
+        int ncqes = ibv_poll_cq(cq, 1, &wc);
+        if (ncqes < 0) {
+            perror("ibv_poll_cq() failed");
+            exit(1);
+        }
     }
+           
+
 };
 
 class client_queues_context : public rdma_client_context {
 private:
     /* TODO add necessary context to track the client side of the GPU's
      * producer/consumer queues */
-
+    char* cpu_gpu_local;
+    char* cpu_gpu_mail_local;
+    char* gpu_cpu_local;
+    char* gpu_cpu_mail_local;
+    
     struct ibv_mr *mr_images_in; /* Memory region for input images */
     struct ibv_mr *mr_images_out; /* Memory region for output images */
     /* TODO define other memory regions used by the client here */
+    struct ibv_mr *mr_cpu_gpu_queue;
+    char* cpu_to_gpu_buf_add;
+
+    struct ibv_mr *mr_cpu_gpu_mail_box;
+    request* cpu_to_gpu_mail_box_add;
+
+    struct ibv_mr *mr_gpu_cpu_queue;
+    char* gpu_to_cpu_buf_add;
+
+    struct ibv_mr *mr_gpu_cpu_mail_box;
+    request* gpu_to_cpu_mail_box_add;
+
 
 public:
     client_queues_context(uint16_t tcp_port) : rdma_client_context(tcp_port)
@@ -290,6 +367,32 @@ public:
         /* TODO communicate with server to discover number of queues, necessary
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
+        
+ 
+
+        send_over_socket(mr_cpu_gpu_queue, sizeof(mr_cpu_gpu_queue));
+        send_over_socket(cpu_to_gpu_buf_add, sizeof(cpu_to_gpu_mail_box_add));
+
+        send_over_socket(mr_cpu_gpu_mail_box, sizeof(mr_cpu_gpu_mail_box));
+        send_over_socket(cpu_to_gpu_mail_box_add, sizeof(cpu_to_gpu_mail_box_add));
+
+        send_over_socket(mr_gpu_cpu_queue, sizeof(mr_gpu_cpu_queue));
+        send_over_socket(gpu_to_cpu_buf_add, sizeof(gpu_to_cpu_buf_add));
+
+        send_over_socket(mr_gpu_cpu_mail_box, sizeof(mr_gpu_cpu_mail_box));
+        send_over_socket(gpu_to_cpu_mail_box_add, sizeof(gpu_to_cpu_mail_box_add));
+
+        // Get mail box size
+        int mail_box_size;
+        send_over_socket(&mail_box_size, sizeof(mail_box_size));
+
+
+        //Alocate locl buffer for DMA
+        cpu_gpu_local = (char*)malloc(sizeof(ring_buffer));
+        cpu_gpu_mail_local = (char*)malloc(sizeof(request)* mail_box_size);
+
+        gpu_cpu_local = (char*)malloc(sizeof(ring_buffer));
+        gpu_cpu_mail_local = (char*)malloc(sizeof(request)* mail_box_size);
     }
 
     ~client_queues_context()
@@ -300,17 +403,63 @@ public:
     virtual void set_input_images(uchar *images_in, size_t bytes) override
     {
         // TODO register memory
+        /* register a memory region for the input images. */
+        mr_images_in = ibv_reg_mr(pd, images_in, bytes, IBV_ACCESS_REMOTE_READ);
+        if (!mr_images_in) {
+            perror("ibv_reg_mr() failed for input images");
+            exit(1);
+        }
     }
 
     virtual void set_output_images(uchar *images_out, size_t bytes) override
     {
         // TODO register memory
+        /* register a memory region for the output images. */
+        mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!mr_images_out) {
+            perror("ibv_reg_mr() failed for output images");
+            exit(1);
+        }
     }
 
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
          * a CPU-GPU producer consumer queue running on the server. */
+        struct ibv_wc wc; /* CQE */
+        int ncqes;
+
+        ring_buffer* cpu_to_gpu;
+        wc.wr_id = img_id;
+        // Check if there is place in cpu-gpu queue
+        post_rdma_read(
+                        cpu_gpu_local,           // local_src
+                        sizeof(ring_buffer),  // len
+                        mr_cpu_gpu_queue->lkey, // lkey
+                        (uint64_t)cpu_to_gpu_buf_add,    // remote_dst
+                        mr_cpu_gpu_queue->rkey,    // rkey
+                        wc.wr_id);          // wr_id
+        
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+        cpu_to_gpu = new (cpu_gpu_local) ring_buffer(1);
+        if (cpu_to_gpu->_tail - cpu_to_gpu->_head == cpu_to_gpu->N) {
+            return false;
+        }
+
+
+
+        // Write Image to gpu buffers in sever
+
+        // Update cpu-gpu queue
+
+        // Update head/tail
+
         return false;
     }
 

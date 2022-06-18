@@ -151,23 +151,24 @@ struct request
 
 class ring_buffer {
 	private:
-		int N;
-		request* _mailbox;
-		cuda::atomic<int> _head, _tail;
-		std::string type;
+            
+		
 	public:
 
+		request* _mailbox;
+        int N;
+        cuda::atomic<int> _head, _tail;
 		ring_buffer(); // def contructor
+        
 		~ring_buffer()
         {
-            CUDA_CHECK(cudaFreeHost(_mailbox));
+                CUDA_CHECK(cudaFreeHost(_mailbox));
 		} 
-		ring_buffer(int size, std::string typeIn)
+		ring_buffer(int size)
         {
 			 N = size;
+             CUDA_CHECK( cudaMallocHost(&_mailbox, sizeof(request)*N ));
 			_head = 0, _tail = 0;
-            CUDA_CHECK( cudaMallocHost(&_mailbox, sizeof(request)*N ));
-            type = typeIn;
 		}
 
 		__device__ __host__
@@ -274,14 +275,16 @@ class queue_server : public image_processing_server
 {
 
 private:
-	ring_buffer* cpu_to_gpu;
+
+	uchar* server_maps;
+    int tb_num;
+public:
+
+    ring_buffer* cpu_to_gpu;
 	ring_buffer* gpu_to_cpu;
 
 	char* cpu_to_gpu_buf;
 	char* gpu_to_cpu_buf;
-	uchar* server_maps;
-    int tb_num;
-public:
     //TODO complete according to HW2
     //(This file should be almost identical to ex2.cu from homework 2.)
 
@@ -297,10 +300,9 @@ public:
 
         CUDA_CHECK(cudaMallocHost(&cpu_to_gpu_buf, sizeof(ring_buffer)));
         CUDA_CHECK(cudaMallocHost(&gpu_to_cpu_buf, sizeof(ring_buffer)));
-        std::string s1 = "cpu to gpu";    
-        std::string s2 = "gpu to cpu";    
-        cpu_to_gpu = new (cpu_to_gpu_buf) ring_buffer(ring_buf_size, s1);
-        gpu_to_cpu = new (gpu_to_cpu_buf) ring_buffer(ring_buf_size, s2);
+ 
+        cpu_to_gpu = new (cpu_to_gpu_buf) ring_buffer(ring_buf_size);
+        gpu_to_cpu = new (gpu_to_cpu_buf) ring_buffer(ring_buf_size);
 
             //  launch GPU persistent kernel with given number of threads, and calculated number of threadblocks
         // process_image_kernel_queue<<<tb_num,threads>>>(cpu_to_gpu,gpu_to_cpu, server_maps);
