@@ -68,6 +68,28 @@ struct rpc_request
     uint64_t output_addr;
 };
 
+struct server_init_info
+{
+     // cpu_gpu
+    struct ibv_mr cpu_gpu_queue;
+    uint64_t* cpu_gpu_queue_addr;
+    struct ibv_mr cpu_gpu_mail_box;
+    uint64_t* cpu_gpu_mail_addr;
+    // gpu_pcu
+    struct ibv_mr gpu_cpu_queue;
+    uint64_t*  gpu_cpu_addr;
+    struct ibv_mr gpu_cpu_mail_box;
+    uint64_t*  gpu_cpu_mail_addr;
+
+     // cpu_gpu
+    struct ibv_mr img_in;
+    uint64_t* img_in_addr;
+    struct ibv_mr img_out;
+    uint64_t* img_out_addr;
+
+};
+
+
 #define IB_DEVICE_NAME_SERVER ""
 #define IB_DEVICE_NAME_CLIENT ""
 #define IB_PORT 1

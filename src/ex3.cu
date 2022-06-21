@@ -267,6 +267,7 @@ public:
     {
  
          /* TODO Initialize additional server MRs as needed. */
+        struct server_init_info server_info = {0};
         server = create_queues_server(256);  
         int mail_box_size =  server->cpu_to_gpu->N * sizeof(request);
 
@@ -295,22 +296,52 @@ public:
             exit(1);
         }
 
-        
-        send_over_socket(cpu_gpu_queue, sizeof(cpu_gpu_queue));
-        send_over_socket(server->cpu_to_gpu_buf, sizeof(server->cpu_to_gpu_buf));
 
-        send_over_socket(cpu_gpu_mail_box, sizeof(cpu_gpu_mail_box));
-        send_over_socket(server->cpu_to_gpu->_mailbox, sizeof(server->cpu_to_gpu->_mailbox));
+        server_info.cpu_gpu_queue = *cpu_gpu_queue;
+   server_info.cpu_gpu_queue_addr = (uint64_t *)server->cpu_to_gpu_buf ;
+   server_info.cpu_gpu_mail_box = *cpu_gpu_mail_box ;
+    server_info.cpu_gpu_mail_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
+    // gpu_pcu
+    server_info.gpu_cpu_queue = *gpu_cpu_queue;
+    server_info.gpu_cpu_addr =  (uint64_t *)server->gpu_to_cpu_buf;
+    server_info.gpu_cpu_mail_box = *gpu_cpu_mail_box;
+    server_info.gpu_cpu_mail_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
 
-        send_over_socket(gpu_cpu_queue, sizeof(gpu_cpu_queue));
-        send_over_socket(server->gpu_to_cpu_buf, sizeof(server->gpu_to_cpu_buf));
+     // cpu_gpu
+       server_info.img_in = *mr_images_in;
+        server_info.img_in_addr =  (uint64_t *)images_in;
+       server_info.img_out = *mr_images_in;
+       server_info.img_out_addr = (uint64_t *) images_out;
 
-        send_over_socket(gpu_cpu_mail_box, sizeof(gpu_cpu_mail_box));
-        send_over_socket(server->gpu_to_cpu->_mailbox, sizeof(server->gpu_to_cpu->_mailbox));
 
-        send_over_socket(&mail_box_size, sizeof(mail_box_size));
-        /* TODO Exchange rkeys, addresses, and necessary information (e.g.
-         * number of queues) with the client */
+        send_over_socket(&server_info, sizeof(server_info));
+        // send_over_socket(cpu_gpu_queue, sizeof(cpu_gpu_queue));
+        // send_over_socket(server->cpu_to_gpu_buf, sizeof(server->cpu_to_gpu_buf));
+
+        // send_over_socket(cpu_gpu_mail_box, sizeof(cpu_gpu_mail_box));
+        // send_over_socket(server->cpu_to_gpu->_mailbox, sizeof(server->cpu_to_gpu->_mailbox));
+
+        // send_over_socket(gpu_cpu_queue, sizeof(gpu_cpu_queue));
+        // send_over_socket(server->gpu_to_cpu_buf, sizeof(server->gpu_to_cpu_buf));
+
+        // send_over_socket(gpu_cpu_mail_box, sizeof(gpu_cpu_mail_box));
+        // send_over_socket(server->gpu_to_cpu->_mailbox, sizeof(server->gpu_to_cpu->_mailbox));
+
+        // send_over_socket(&mail_box_size, sizeof(mail_box_size));
+
+        // // Send gpu buffers
+        // images_out mr_images_out
+        // images_in mr_images_in
+
+        // send_over_socket(images_in, sizeof(images_in));
+        // send_over_socket(mr_images_in, sizeof(mr_images_in));
+
+        // send_over_socket(images_out, sizeof(images_out));
+        // send_over_socket(mr_images_out, sizeof(server->cpu_to_gpu_buf));
+
+
+        // /* TODO Exchange rkeys, addresses, and necessary information (e.g.
+        //  * number of queues) with the client */
     }
 
     ~server_queues_context()
@@ -341,24 +372,26 @@ private:
     /* TODO add necessary context to track the client side of the GPU's
      * producer/consumer queues */
     char* cpu_gpu_local;
+    struct ibv_mr* cpu_gpu_queue;
     char* cpu_gpu_mail_local;
     char* gpu_cpu_local;
     char* gpu_cpu_mail_local;
     
-    struct ibv_mr *mr_images_in; /* Memory region for input images */
-    struct ibv_mr *mr_images_out; /* Memory region for output images */
-    /* TODO define other memory regions used by the client here */
-    struct ibv_mr *mr_cpu_gpu_queue;
-    char* cpu_to_gpu_buf_add;
+    // struct ibv_mr *mr_images_in; /* Memory region for input images */
+    // struct ibv_mr *mr_images_out; /* Memory region for output images */
+    // /* TODO define other memory regions used by the client here */
+    // struct ibv_mr *mr_cpu_gpu_queue;
+    // char* cpu_to_gpu_buf_add;
 
-    struct ibv_mr *mr_cpu_gpu_mail_box;
-    request* cpu_to_gpu_mail_box_add;
+    // struct ibv_mr *mr_cpu_gpu_mail_box;
+    // request* cpu_to_gpu_mail_box_add;
 
-    struct ibv_mr *mr_gpu_cpu_queue;
-    char* gpu_to_cpu_buf_add;
+    // struct ibv_mr *mr_gpu_cpu_queue;
+    // char* gpu_to_cpu_buf_add;
 
-    struct ibv_mr *mr_gpu_cpu_mail_box;
-    request* gpu_to_cpu_mail_box_add;
+    // struct ibv_mr *mr_gpu_cpu_mail_box;
+    // request* gpu_to_cpu_mail_box_add;
+     struct server_init_info server_info;
 
 
 public:
@@ -367,25 +400,8 @@ public:
         /* TODO communicate with server to discover number of queues, necessary
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
-        
- 
-
-        send_over_socket(mr_cpu_gpu_queue, sizeof(mr_cpu_gpu_queue));
-        send_over_socket(cpu_to_gpu_buf_add, sizeof(cpu_to_gpu_mail_box_add));
-
-        send_over_socket(mr_cpu_gpu_mail_box, sizeof(mr_cpu_gpu_mail_box));
-        send_over_socket(cpu_to_gpu_mail_box_add, sizeof(cpu_to_gpu_mail_box_add));
-
-        send_over_socket(mr_gpu_cpu_queue, sizeof(mr_gpu_cpu_queue));
-        send_over_socket(gpu_to_cpu_buf_add, sizeof(gpu_to_cpu_buf_add));
-
-        send_over_socket(mr_gpu_cpu_mail_box, sizeof(mr_gpu_cpu_mail_box));
-        send_over_socket(gpu_to_cpu_mail_box_add, sizeof(gpu_to_cpu_mail_box_add));
-
-        // Get mail box size
-        int mail_box_size;
-        send_over_socket(&mail_box_size, sizeof(mail_box_size));
-
+        server_info = {0};
+            recv_over_socket(&server_info, sizeof(server_info));
 
         //Alocate locl buffer for DMA
         cpu_gpu_local = (char*)malloc(sizeof(ring_buffer));
@@ -448,13 +464,20 @@ public:
         }
 
         cpu_to_gpu = new (cpu_gpu_local) ring_buffer(1);
+        // check for place
         if (cpu_to_gpu->_tail - cpu_to_gpu->_head == cpu_to_gpu->N) {
             return false;
         }
 
-
-
         // Write Image to gpu buffers in sever
+        post_rdma_write(
+                    req->output_addr,                       // remote_dst
+                    terminate ? 0 : req->output_length,     // len
+                    req->output_rkey,                       // rkey
+                    terminate ? 0 : img_out,                // local_src
+                    mr_images_out->lkey,                    // lkey
+                    dequeued_img_id + OUTSTANDING_REQUESTS, // wr_id
+                    (uint32_t*)&req->request_id);           // immediate
 
         // Update cpu-gpu queue
 
@@ -467,6 +490,8 @@ public:
     {
         /* TODO use RDMA Write and RDMA Read operations to detect the completion and dequeue a processed image
          * through a CPU-GPU producer consumer queue running on the server. */
+
+         
         return false;
     }
 };
