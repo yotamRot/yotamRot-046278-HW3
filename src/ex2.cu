@@ -158,11 +158,18 @@ class ring_buffer {
 		request* _mailbox;
         int N;
         cuda::atomic<int> _head, _tail;
-		ring_buffer(); // def contructor
+		ring_buffer()
+		{
+             		_mailbox = NULL;
+			_head = 0, _tail = 0;
+		}; // def contructor
         
 		~ring_buffer()
-        {
-                CUDA_CHECK(cudaFreeHost(_mailbox));
+        	{
+                	if(_mailbox != NULL)
+			{
+				CUDA_CHECK(cudaFreeHost(_mailbox));
+			}
 		} 
 		ring_buffer(int size)
         {

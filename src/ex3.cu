@@ -429,6 +429,8 @@ public:
 
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
+
+	bool terminate = (img_id == -1);
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
          * a CPU-GPU producer consumer queue running on the server. */
         struct ibv_wc wc; /* CQE */
@@ -439,9 +441,9 @@ public:
         post_rdma_read(
                         &cpu_gpu_ring_buff,           // local_src
                         sizeof(ring_buffer),  // len
-                        mr_cpu_gpu_queue->lkey, // lkey
-                        (uint64_t)cpu_to_gpu_buf_add,    // remote_dst
-                        mr_cpu_gpu_queue->rkey,    // rkey
+                        cpu_gpu_ring_buff_mr->lkey, // lkey
+                        (uint64_t)server_info.cpu_gpu_ring_buffer_addr,    // remote_dst
+                        server_info.cpu_gpu_ring_buffer_mr.rkey,    // rkey
                         wc.wr_id);          // wr_id
         
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
@@ -451,21 +453,19 @@ public:
                 exit(1);
         }
 
-        cpu_to_gpu = new (cpu_gpu_local) ring_buffer(1);
         // check for place
-        if (cpu_to_gpu->_tail - cpu_to_gpu->_head == cpu_to_gpu->N) {
+        if (cpu_gpu_ring_buff._tail - cpu_gpu_ring_buff._head == cpu_gpu_ring_buff.N) {
             return false;
         }
-
         // Write Image to gpu buffers in sever
         post_rdma_write(
-                    req->output_addr,                       // remote_dst
-                    terminate ? 0 : req->output_length,     // len
-                    req->output_rkey,                       // rkey
-                    terminate ? 0 : img_out,                // local_src
-                    mr_images_out->lkey,                    // lkey
-                    dequeued_img_id + OUTSTANDING_REQUESTS, // wr_id
-                    (uint32_t*)&req->request_id);           // immediate
+                    (uint64_t)server_info.img_in_addr + img_id*IMG_SZ ,                       // remote_dst
+                    terminate ? 0 : IMG_SZ,     // len
+                    server_info.img_in_mr.rkey,                       // rkey
+                    terminate ? 0 : img_in,                // local_src
+                    mr_images_in->lkey,                    // lkey
+                    img_id, // wr_id
+                    NULL);           
 
         // Update cpu-gpu queue
 
