@@ -366,27 +366,16 @@ class client_queues_context : public rdma_client_context {
 private:
     /* TODO add necessary context to track the client side of the GPU's
      * producer/consumer queues */
-    char* cpu_gpu_local;
-    struct ibv_mr* cpu_gpu_queue;
-    char* cpu_gpu_mail_local;
-    char* gpu_cpu_local;
-    char* gpu_cpu_mail_local;
-    
-    // struct ibv_mr *mr_images_in; /* Memory region for input images */
-    // struct ibv_mr *mr_images_out; /* Memory region for output images */
-    // /* TODO define other memory regions used by the client here */
-    // struct ibv_mr *mr_cpu_gpu_queue;
-    // char* cpu_to_gpu_buf_add;
+    struct server_init_info server_info;
+    request local_request;
+    struct ibv_mr* local_request_mr;
+    ring_buffer cpu_gpu_ring_buff;
+    struct ibv_mr* cpu_gpu_ring_buff_mr;
+    ring_buffer gpu_cpu_ring_buff;
+    struct ibv_mr* gpu_cpu_ring_buff_mr;
 
-    // struct ibv_mr *mr_cpu_gpu_mail_box;
-    // request* cpu_to_gpu_mail_box_add;
-
-    // struct ibv_mr *mr_gpu_cpu_queue;
-    // char* gpu_to_cpu_buf_add;
-
-    // struct ibv_mr *mr_gpu_cpu_mail_box;
-    // request* gpu_to_cpu_mail_box_add;
-     struct server_init_info server_info;
+    struct ibv_mr *mr_images_in; /* Memory region for input images */
+    struct ibv_mr *mr_images_out; /* Memory region for output images */
 
 
 public:
@@ -395,20 +384,40 @@ public:
         /* TODO communicate with server to discover number of queues, necessary
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
-        server_info = {0};
-            recv_over_socket(&server_info, sizeof(server_info));
 
-        //Alocate locl buffer for DMA
-        cpu_gpu_local = (char*)malloc(sizeof(ring_buffer));
-        cpu_gpu_mail_local = (char*)malloc(sizeof(request)* mail_box_size);
+        server_info;
+        recv_over_socket(&server_info, sizeof(server_info));
 
-        gpu_cpu_local = (char*)malloc(sizeof(ring_buffer));
-        gpu_cpu_mail_local = (char*)malloc(sizeof(request)* mail_box_size);
+         // create memory regions
+        local_request_mr = ibv_reg_mr(pd, &local_request, sizeof(request), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        if (!local_request_mr) {
+            perror("ibv_reg_mr() failed for request");
+            exit(1);
+        }
+
+        cpu_gpu_ring_buff_mr = ibv_reg_mr(pd, &cpu_gpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        if (!cpu_gpu_ring_buff_mr) {
+            perror("ibv_reg_mr() failed for cpu_gpu_ring_buff_mr");
+            exit(1);
+        }
+
+        gpu_cpu_ring_buff_mr = ibv_reg_mr(pd, &gpu_cpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        if (!gpu_cpu_ring_buff_mr) {
+            perror("ibv_reg_mr() failed for gpu_cpu_ring_buff_mr");
+            exit(1);
+        }
+
+
     }
 
     ~client_queues_context()
     {
-	/* TODO terminate the server and release memory regions and other resources */
+        /* TODO terminate the server and release memory regions and other resources */
+        ibv_dereg_mr(local_request_mr);
+        ibv_dereg_mr(cpu_gpu_ring_buff_mr);
+        ibv_dereg_mr(gpu_cpu_ring_buff_mr);
+        ibv_dereg_mr(mr_images_in);
+        ibv_dereg_mr(mr_images_out);
     }
 
     virtual void set_input_images(uchar *images_in, size_t bytes) override
@@ -448,11 +457,10 @@ public:
         struct ibv_wc wc; /* CQE */
         int ncqes;
 
-        ring_buffer* cpu_to_gpu;
         wc.wr_id = img_id;
         // Check if there is place in cpu-gpu queue
         post_rdma_read(
-                        cpu_gpu_local,           // local_src
+                        &cpu_gpu_ring_buff,           // local_src
                         sizeof(ring_buffer),  // len
                         mr_cpu_gpu_queue->lkey, // lkey
                         (uint64_t)cpu_to_gpu_buf_add,    // remote_dst
