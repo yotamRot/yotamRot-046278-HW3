@@ -269,79 +269,56 @@ public:
         // create memory regions
         cpu_gpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
         server_info.cpu_gpu_ring_buffer_mr = *cpu_gpu_ring_buffer_mr;
-        if (!server_info.cpu_gpu_ring_buffer_mr) {
+        if (!cpu_gpu_ring_buffer_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_ring_buffer_mr");
             exit(1);
         }
 
-        server_info.cpu_gpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        if (!server_info.cpu_gpu_mail_box_mr) {
+        cpu_gpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        server_info.cpu_gpu_mail_box_mr = *ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!cpu_gpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_mail_box_mr");
             exit(1);
         }
 
-        server_info.gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
-        if (!server_info.gpu_cpu_ring_buffer_mr) {
+        gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        server_info.gpu_cpu_ring_buffer_mr =*gpu_cpu_ring_buffer_mr;
+        if (!gpu_cpu_ring_buffer_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_ring_buffer_mr");
             exit(1);
         }
 
-        server_info.gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        if (!server_info.gpu_cpu_mail_box_mr) {
+        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        server_info.gpu_cpu_mail_box_mr = *gpu_cpu_mail_box_mr;
+        if (!gpu_cpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_mail_box_mr");
             exit(1);
         }
 
-    server_info.cpu_gpu_queue = *cpu_gpu_queue;
     server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf ;
-    server_info.cpu_gpu_mail_box = *cpu_gpu_mail_box ;
-    server_info.cpu_gpu_mail_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
+    server_info.cpu_gpu_mail_box_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
+
     // gpu_pcu
-    server_info.gpu_cpu_queue = *gpu_cpu_queue;
-    server_info.gpu_cpu_addr =  (uint64_t *)server->gpu_to_cpu_buf;
-    server_info.gpu_cpu_mail_box = *gpu_cpu_mail_box;
-    server_info.gpu_cpu_mail_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
+    server_info.gpu_cpu_ring_buffer_addr =  (uint64_t *)server->gpu_to_cpu_buf;
+    server_info.gpu_cpu_mail_box_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
 
-     // cpu_gpu
-       server_info.img_in = *mr_images_in;
-        server_info.img_in_addr =  (uint64_t *)images_in;
-       server_info.img_out = *mr_images_in;
-       server_info.img_out_addr = (uint64_t *) images_out;
+     //gpu buffers 
+    server_info.img_in_addr =  (uint64_t *)images_in;
+    server_info.img_in_mr =  *mr_images_in;
+    server_info.img_out_addr = (uint64_t *) images_out;
+    server_info.img_out_mr =  *mr_images_out;
 
 
-        send_over_socket(&server_info, sizeof(server_info));
-        // send_over_socket(cpu_gpu_queue, sizeof(cpu_gpu_queue));
-        // send_over_socket(server->cpu_to_gpu_buf, sizeof(server->cpu_to_gpu_buf));
-
-        // send_over_socket(cpu_gpu_mail_box, sizeof(cpu_gpu_mail_box));
-        // send_over_socket(server->cpu_to_gpu->_mailbox, sizeof(server->cpu_to_gpu->_mailbox));
-
-        // send_over_socket(gpu_cpu_queue, sizeof(gpu_cpu_queue));
-        // send_over_socket(server->gpu_to_cpu_buf, sizeof(server->gpu_to_cpu_buf));
-
-        // send_over_socket(gpu_cpu_mail_box, sizeof(gpu_cpu_mail_box));
-        // send_over_socket(server->gpu_to_cpu->_mailbox, sizeof(server->gpu_to_cpu->_mailbox));
-
-        // send_over_socket(&mail_box_size, sizeof(mail_box_size));
-
-        // // Send gpu buffers
-        // images_out mr_images_out
-        // images_in mr_images_in
-
-        // send_over_socket(images_in, sizeof(images_in));
-        // send_over_socket(mr_images_in, sizeof(mr_images_in));
-
-        // send_over_socket(images_out, sizeof(images_out));
-        // send_over_socket(mr_images_out, sizeof(server->cpu_to_gpu_buf));
-
-
-        // /* TODO Exchange rkeys, addresses, and necessary information (e.g.
-        //  * number of queues) with the client */
+    send_over_socket(&server_info, sizeof(server_info));
+    
     }
 
     ~server_queues_context()
     {
-        /* TODO destroy the additional server MRs here */
+    	ibv_dereg_mr(cpu_gpu_ring_buffer_mr);
+    	ibv_dereg_mr(cpu_gpu_mail_box_mr);
+    	ibv_dereg_mr(gpu_cpu_ring_buffer_mr);
+    	ibv_dereg_mr(gpu_cpu_mail_box_mr);
     }
 
     virtual void event_loop() override
