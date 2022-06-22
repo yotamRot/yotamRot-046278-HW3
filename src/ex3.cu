@@ -341,8 +341,7 @@ public:
 
 class client_queues_context : public rdma_client_context {
 private:
-    /* TODO add necessary context to track the client side of the GPU's
-     * producer/consumer queues */
+     /* producer/consumer queues */
     struct server_init_info server_info;
     request local_request;
     struct ibv_mr* local_request_mr;
@@ -354,6 +353,8 @@ private:
     struct ibv_mr *mr_images_in; /* Memory region for input images */
     struct ibv_mr *mr_images_out; /* Memory region for output images */
 
+    uchar* _images_out;
+
 
 public:
     client_queues_context(uint16_t tcp_port) : rdma_client_context(tcp_port)
@@ -362,7 +363,6 @@ public:
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
 
-        server_info;
         recv_over_socket(&server_info, sizeof(server_info));
 
          // create memory regions
@@ -411,6 +411,7 @@ public:
     virtual void set_output_images(uchar *images_out, size_t bytes) override
     {
         // TODO register memory
+	_images_out = images_out;
         /* register a memory region for the output images. */
         mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
         if (!mr_images_out) {
@@ -505,7 +506,7 @@ public:
                     sizeof(ring_buffer),     // len
                     server_info.cpu_gpu_ring_buffer_mr.rkey,  // rkey
                     &cpu_gpu_ring_buff ,                // local_src
-                    local_request_mr->lkey,                    // lkey
+                    cpu_gpu_ring_buff_mr->lkey,                    // lkey
                     wc.wr_id, // wr_id
                     NULL);           
 
@@ -523,29 +524,96 @@ public:
 
     virtual bool dequeue(int *img_id) override
     {
-        /* TODO use RDMA Write and RDMA Read operations to detect the completion and dequeue a processed image
-         * through a CPU-GPU producer consumer queue running on the server. */
+	struct ibv_wc wc = {0}; /* CQE */
+        int ncqes;
+
+        //wc.wr_id = img_id;
+
 	//flow for dnqueue
 	// rdma read gpucpu ring buffer
-      //	post_rdma_read(
-      //          &cpu_gpu_ring_buff,           // local_src
-      //          sizeof(ring_buffer),  // len
-      //          cpu_gpu_ring_buff_mr->lkey, // lkey
-      //          (uint64_t)server_info.cpu_gpu_ring_buffer_addr,    // remote_dst
-      //          server_info.cpu_gpu_ring_buffer_mr.rkey,    // rkey
-      //          wc.wr_id);          // wr_id
+      	post_rdma_read(
+                &gpu_cpu_ring_buff,           // local_src
+                sizeof(ring_buffer),  // len
+                gpu_cpu_ring_buff_mr->lkey, // lkey
+                (uint64_t)server_info.gpu_cpu_ring_buffer_addr,    // remote_dst
+                server_info.gpu_cpu_ring_buffer_mr.rkey,    // rkey
+                wc.wr_id);          // wr_id
 
-		
-	//check if empty(with tain head)
-		//if empty return false
+	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+        // check for place
+        if (cpu_gpu_ring_buff._tail != cpu_gpu_ring_buff._head) {
+            return false;
+        }
+
+
 	//rdma read mail_box from tail/head? and get img id
+      	post_rdma_read(
+                &local_request,           // local_src
+                sizeof(local_request),  // len
+                local_request_mr->lkey, // lkey
+                (uint64_t)server_info.gpu_cpu_mail_box_addr + sizeof(local_request)*(gpu_cpu_ring_buff._head%gpu_cpu_ring_buff.N),    // remote_dst
+                server_info.gpu_cpu_mail_box_mr.rkey,    // rkey
+                wc.wr_id);          // wr_id
+
+	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+
+
 	//rdma read img from cuda_host img_in[img_id] to our img in
+      	post_rdma_read(
+                _images_out + IMG_SZ*local_request.imgID,           // local_src
+                IMG_SZ,  // len
+                mr_images_out->lkey, // lkey
+                (uint64_t)server_info.img_out_addr + IMG_SZ*local_request.imgID,    // remote_dst
+                server_info.img_out_mr.rkey,    // rkey
+                wc.wr_id);          // wr_id
+
+	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
 	//rdma write cpugpu ring buffer with updated head-tail
+  
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+        // Update head/tail
+	gpu_cpu_ring_buff._head++;
+   	post_rdma_write(
+                    (uint64_t)server_info.gpu_cpu_ring_buffer_addr,                       // remote_dst
+                    sizeof(ring_buffer),     // len
+                    server_info.gpu_cpu_ring_buffer_mr.rkey,  // rkey
+                    &gpu_cpu_ring_buff ,                // local_src
+                    gpu_cpu_ring_buff_mr->lkey,                    // lkey
+                    wc.wr_id, // wr_id
+                    NULL);           
 
 
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
 
-         
-        return false;
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+        return true;
     }
 };
 
