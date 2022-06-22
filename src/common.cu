@@ -437,16 +437,21 @@ rdma_client_context::rdma_client_context(uint16_t tcp_port) :
 {
     /* Create a TCP connection to exchange InfiniBand parameters */
     tcp_connection();
+    printf("1\n");
 
     /* Open up some InfiniBand resources */
     initialize_verbs(IB_DEVICE_NAME_CLIENT);
+    printf("2\n");
 
     /* exchange InfiniBand parameters with the client */
     send_connection_establishment_data();
     connection_establishment_data server_info = recv_connection_establishment_data();
 
+    printf("3\n");
+
     /* now need to connect the QP to the client's QP. */
     connect_qp(server_info);
+    printf("4\n");
 }
 
 rdma_client_context::~rdma_client_context()

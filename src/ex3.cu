@@ -165,7 +165,6 @@ public:
         struct ibv_send_wr *bad_wr; /* ibv_post_send() reports bad WQEs here */
 
         /* step 1: send request to server using Send operation */
-        
         struct rpc_request *req = &requests[requests_sent % OUTSTANDING_REQUESTS];
         req->request_id = img_id;
         req->input_rkey = img_in ? mr_images_in->rkey : 0;
@@ -308,9 +307,10 @@ public:
     server_info.img_out_addr = (uint64_t *) images_out;
     server_info.img_out_mr =  *mr_images_out;
 
-
+    printf("server contructor: sending client mrs and stuff over socket\n");
     send_over_socket(&server_info, sizeof(server_info));
     
+    printf("server contructor: sending client mrs and stuff over socket - completed\n");
     }
 
     ~server_queues_context()
@@ -326,14 +326,14 @@ public:
         /* TODO simplified version of server_rpc_context::event_loop. As the
          * client use one sided operations, we only need one kind of message to
          * terminate the server at the end. */
-        struct ibv_wc wc;
 
         // wait for end message
-        int ncqes = ibv_poll_cq(cq, 1, &wc);
-        if (ncqes < 0) {
-            perror("ibv_poll_cq() failed");
-            exit(1);
-        }
+	int end_buf;
+    	printf("server event loop: starting to wait to recieve over socket term msg from client\n");
+	//recv_over_socket(&end_buf,sizeof(int));
+	while(1);
+    	printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
+         
     }
            
 
@@ -363,7 +363,9 @@ public:
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
 
+    	printf("client constructor: waiting for server to send over socket all the mrs and stuff\n");
         recv_over_socket(&server_info, sizeof(server_info));
+    	printf("client constructor: recieved from server over socket all server info\n");
 
          // create memory regions
         local_request_mr = ibv_reg_mr(pd, &local_request, sizeof(request), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
@@ -383,6 +385,7 @@ public:
             perror("ibv_reg_mr() failed for gpu_cpu_ring_buff_mr");
             exit(1);
         }
+    	printf("client constructor: finished constructor\n");
 
 
     }
@@ -430,6 +433,7 @@ public:
 
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
+	printf(" enq start, img: %d\n",img_id);
 
 	if(img_id == -1)
 	{
@@ -517,17 +521,19 @@ public:
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
-
+   
+	printf(" enq end, img: %d",img_id);
         return true;
     }
 
 
     virtual bool dequeue(int *img_id) override
     {
+	printf(" dq start, img: ?\n");
+
 	struct ibv_wc wc = {0}; /* CQE */
         int ncqes;
-
-        //wc.wr_id = img_id;
+        wc.wr_id = 666;
 
 	//flow for dnqueue
 	// rdma read gpucpu ring buffer
@@ -539,15 +545,19 @@ public:
                 server_info.gpu_cpu_ring_buffer_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
 
+	    printf(" dequeu: sent first rdma read \n");
 	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
+	    printf(" dequeu:  revc cqe \n");
 
         // check for place
         if (cpu_gpu_ring_buff._tail != cpu_gpu_ring_buff._head) {
+
+	    printf(" dequeu: gpu cpu empty\n");
             return false;
         }
 
@@ -613,6 +623,7 @@ public:
                 exit(1);
         }
 
+	printf(" dq end, img: %d \n", local_request.imgID);
         return true;
     }
 };
