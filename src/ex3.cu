@@ -430,7 +430,10 @@ public:
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
 
-	bool terminate = (img_id == -1);
+	if(img_id == -1)
+	{
+		send_over_socket(&img_id,sizeof(img_id));
+	}
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
          * a CPU-GPU producer consumer queue running on the server. */
         struct ibv_wc wc; /* CQE */
@@ -460,34 +463,86 @@ public:
         // Write Image to gpu buffers in sever
         post_rdma_write(
                     (uint64_t)server_info.img_in_addr + img_id*IMG_SZ ,                       // remote_dst
-                    terminate ? 0 : IMG_SZ,     // len
+                     IMG_SZ,     // len
                     server_info.img_in_mr.rkey,                       // rkey
-                    terminate ? 0 : img_in,                // local_src
+                     img_in,                // local_src
                     mr_images_in->lkey,                    // lkey
-                    img_id, // wr_id
+                    wc.wr_id, // wr_id
                     NULL);           
 
+
+
         // Update cpu-gpu queue
+	local_request.imgID  = img_id;
+	local_request.imgIn  = (uchar*)(server_info.img_in_addr) + img_id*IMG_SZ;
+	local_request.imgOut = (uchar*)(server_info.img_out_addr) + img_id*IMG_SZ;
 
+       	post_rdma_write(
+                    (uint64_t)server_info.cpu_gpu_mail_box_addr + sizeof(request)*(cpu_gpu_ring_buff._tail%cpu_gpu_ring_buff.N),                       // remote_dst
+                     sizeof(request),     // len
+                    server_info.cpu_gpu_mail_box_mr.rkey,  // rkey
+                    &local_request ,                // local_src
+                    local_request_mr->lkey,                    // lkey
+                    wc.wr_id, // wr_id
+                    NULL);           
+
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
         // Update head/tail
+	cpu_gpu_ring_buff._tail++;
+   	post_rdma_write(
+                    (uint64_t)server_info.cpu_gpu_ring_buffer_addr,                       // remote_dst
+                    sizeof(ring_buffer),     // len
+                    server_info.cpu_gpu_ring_buffer_mr.rkey,  // rkey
+                    &cpu_gpu_ring_buff ,                // local_src
+                    local_request_mr->lkey,                    // lkey
+                    wc.wr_id, // wr_id
+                    NULL);           
 
-        return false;
+
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+        return true;
     }
-
-//flow for dnqueue
-    // rdma read gpucpu ring buffer
-    
-    //check if empty(with tain head)
-    	//if empty return false
-    //rdma read mail_box from tail/head? and get img id
-    //rdma read img from cuda_host img_in[img_id] to our img in
-    //rdma write cpugpu ring buffer with updated head-tail
 
 
     virtual bool dequeue(int *img_id) override
     {
         /* TODO use RDMA Write and RDMA Read operations to detect the completion and dequeue a processed image
          * through a CPU-GPU producer consumer queue running on the server. */
+	//flow for dnqueue
+	// rdma read gpucpu ring buffer
+      //	post_rdma_read(
+      //          &cpu_gpu_ring_buff,           // local_src
+      //          sizeof(ring_buffer),  // len
+      //          cpu_gpu_ring_buff_mr->lkey, // lkey
+      //          (uint64_t)server_info.cpu_gpu_ring_buffer_addr,    // remote_dst
+      //          server_info.cpu_gpu_ring_buffer_mr.rkey,    // rkey
+      //          wc.wr_id);          // wr_id
+
+		
+	//check if empty(with tain head)
+		//if empty return false
+	//rdma read mail_box from tail/head? and get img id
+	//rdma read img from cuda_host img_in[img_id] to our img in
+	//rdma write cpugpu ring buffer with updated head-tail
+
+
 
          
         return false;
