@@ -247,59 +247,54 @@ public:
     }
 };
 
+
+
 class server_queues_context : public rdma_server_context {
 private:
-    std::unique_ptr<queue_server> server;
-    
-    // cpu_gpu
-    struct ibv_mr *cpu_gpu_queue;
-    struct ibv_mr *cpu_gpu_mail_box;
-    // gpu_pcu
-    struct ibv_mr *gpu_cpu_queue;
-    struct ibv_mr *gpu_cpu_mail_box;
-
-
-
-    /* TODO: add memory region(s) for CPU-GPU queues */
-
+   	std::unique_ptr<queue_server> server;
+	struct server_init_info server_info; 
+ 
+	struct ibv_mr* cpu_gpu_ring_buffer_mr ;
+	struct ibv_mr* cpu_gpu_mail_box_mr ;
+	
+	struct ibv_mr* gpu_cpu_ring_buffer_mr ;
+	struct ibv_mr* gpu_cpu_mail_box_mr ;
 public:
     explicit server_queues_context(uint16_t tcp_port) : rdma_server_context(tcp_port)
     {
  
-         /* TODO Initialize additional server MRs as needed. */
-        struct server_init_info server_info = {0};
         server = create_queues_server(256);  
         int mail_box_size =  server->cpu_to_gpu->N * sizeof(request);
 
         // create memory regions
-        cpu_gpu_queue = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        if (!cpu_gpu_queue) {
-            perror("ibv_reg_mr() failed for cpu_gpu_queue");
+        cpu_gpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        server_info.cpu_gpu_ring_buffer_mr = *cpu_gpu_ring_buffer_mr;
+        if (!server_info.cpu_gpu_ring_buffer_mr) {
+            perror("ibv_reg_mr() failed for cpu_gpu_ring_buffer_mr");
             exit(1);
         }
 
-        cpu_gpu_mail_box = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        if (!cpu_gpu_queue) {
-            perror("ibv_reg_mr() failed for cpu_gpu_mail_box");
+        server_info.cpu_gpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!server_info.cpu_gpu_mail_box_mr) {
+            perror("ibv_reg_mr() failed for cpu_gpu_mail_box_mr");
             exit(1);
         }
 
-        gpu_cpu_queue = ibv_reg_mr(pd, server->gpu_to_cpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        if (!gpu_cpu_queue) {
-            perror("ibv_reg_mr() failed for gpu_cpu_queue");
+        server_info.gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        if (!server_info.gpu_cpu_ring_buffer_mr) {
+            perror("ibv_reg_mr() failed for gpu_cpu_ring_buffer_mr");
             exit(1);
         }
 
-        gpu_cpu_mail_box = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_REMOTE_READ);
-        if (!cpu_gpu_queue) {
-            perror("ibv_reg_mr() failed for gpu_cpu_mail_box");
+        server_info.gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (!server_info.gpu_cpu_mail_box_mr) {
+            perror("ibv_reg_mr() failed for gpu_cpu_mail_box_mr");
             exit(1);
         }
 
-
-        server_info.cpu_gpu_queue = *cpu_gpu_queue;
-   server_info.cpu_gpu_queue_addr = (uint64_t *)server->cpu_to_gpu_buf ;
-   server_info.cpu_gpu_mail_box = *cpu_gpu_mail_box ;
+    server_info.cpu_gpu_queue = *cpu_gpu_queue;
+    server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf ;
+    server_info.cpu_gpu_mail_box = *cpu_gpu_mail_box ;
     server_info.cpu_gpu_mail_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
     // gpu_pcu
     server_info.gpu_cpu_queue = *gpu_cpu_queue;
@@ -438,6 +433,14 @@ public:
         }
     }
 
+//flow for enqueue
+    // rdma read cpugpu ring buffer
+    //check if full(with tain head)
+    	//if full return false
+    //rdma write img to img_in[img_id]
+    //rdma write req(img id,img_in_host_addr[img_id],img_out_host_addr[img_id]) to mail_box
+    //rdma write cpugpu ring buffer with updated head-tail
+
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
@@ -485,6 +488,16 @@ public:
 
         return false;
     }
+
+//flow for dnqueue
+    // rdma read gpucpu ring buffer
+    
+    //check if empty(with tain head)
+    	//if empty return false
+    //rdma read mail_box from tail/head? and get img id
+    //rdma read img from cuda_host img_in[img_id] to our img in
+    //rdma write cpugpu ring buffer with updated head-tail
+
 
     virtual bool dequeue(int *img_id) override
     {

@@ -68,23 +68,39 @@ struct rpc_request
     uint64_t output_addr;
 };
 
+
+//mr needed - 
+	//server
+    		//ring buffer  W&R
+    		//mailbox cpugpu W
+    		//img_in W
+    		//mailbox gpucpu R
+    		//img out R
+    	// client
+    		//ring buffer  W&R
+    		//request cpugpu R
+    		//img_in R
+    		//request gpucpu W
+    		//img out W
+
 struct server_init_info
 {
      // cpu_gpu
-    struct ibv_mr cpu_gpu_queue;
-    uint64_t* cpu_gpu_queue_addr;
-    struct ibv_mr cpu_gpu_mail_box;
-    uint64_t* cpu_gpu_mail_addr;
-    // gpu_pcu
-    struct ibv_mr gpu_cpu_queue;
-    uint64_t*  gpu_cpu_addr;
-    struct ibv_mr gpu_cpu_mail_box;
-    uint64_t*  gpu_cpu_mail_addr;
+    struct ibv_mr cpu_gpu_ring_buffer_mr;
+    uint64_t* cpu_gpu_ring_buffer_addr;
+    struct ibv_mr cpu_gpu_mail_box_mr;
+    uint64_t* cpu_gpu_mail_box_addr;
 
-     // cpu_gpu
-    struct ibv_mr img_in;
+    // gpu_pcu
+    struct ibv_mr gpu_cpu_ring_buffer_mr;
+    uint64_t* gpu_cpu_ring_buffer_addr;
+    struct ibv_mr gpu_cpu_mail_box_mr;
+    uint64_t* gpu_cpu_mail_box_addr;
+
+    //for both
+    struct ibv_mr img_in_mr;
     uint64_t* img_in_addr;
-    struct ibv_mr img_out;
+    struct ibv_mr img_out_mr;
     uint64_t* img_out_addr;
 
 };
