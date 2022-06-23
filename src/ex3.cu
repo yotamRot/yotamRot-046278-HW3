@@ -280,25 +280,25 @@ public:
             exit(1);
         }
 
-        gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->gpu_to_cpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
         server_info.gpu_cpu_ring_buffer_mr =*gpu_cpu_ring_buffer_mr;
         if (!gpu_cpu_ring_buffer_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_ring_buffer_mr");
             exit(1);
         }
 
-        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
         server_info.gpu_cpu_mail_box_mr = *gpu_cpu_mail_box_mr;
         if (!gpu_cpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_mail_box_mr");
             exit(1);
         }
 
-    server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf ;
-    server_info.cpu_gpu_mail_box_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
+    server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf;
+    server_info.cpu_gpu_mail_box_addr = (uint64_t *)server->cpu_to_gpu->_mailbox;
 
     // gpu_pcu
-    server_info.gpu_cpu_ring_buffer_addr =  (uint64_t *)server->gpu_to_cpu_buf;
+    server_info.gpu_cpu_ring_buffer_addr = (uint64_t *)server->gpu_to_cpu_buf;
     server_info.gpu_cpu_mail_box_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
 
      //gpu buffers 
@@ -362,10 +362,13 @@ public:
         /* TODO communicate with server to discover number of queues, necessary
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
-
+        server_info = {0};
     	printf("client constructor: waiting for server to send over socket all the mrs and stuff\n");
         recv_over_socket(&server_info, sizeof(server_info));
     	printf("client constructor: recieved from server over socket all server info\n");
+    	printf("%p\n", server_info.cpu_gpu_ring_buffer_addr);
+        
+
 
          // create memory regions
         local_request_mr = ibv_reg_mr(pd, &local_request, sizeof(request), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
@@ -374,7 +377,7 @@ public:
             exit(1);
         }
 
-        cpu_gpu_ring_buff_mr = ibv_reg_mr(pd, &cpu_gpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        cpu_gpu_ring_buff_mr = ibv_reg_mr(pd, &cpu_gpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
         if (!cpu_gpu_ring_buff_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_ring_buff_mr");
             exit(1);
@@ -416,7 +419,7 @@ public:
         // TODO register memory
 	_images_out = images_out;
         /* register a memory region for the output images. */
-        mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
         if (!mr_images_out) {
             perror("ibv_reg_mr() failed for output images");
             exit(1);
@@ -433,12 +436,12 @@ public:
 
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
-	printf(" enq start, img: %d\n",img_id);
+	    printf(" enq start, img: %d\n",img_id);
 
-	if(img_id == -1)
-	{
-		send_over_socket(&img_id,sizeof(img_id));
-	}
+        if(img_id == -1)
+        {
+            send_over_socket(&img_id,sizeof(img_id));
+        }
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
          * a CPU-GPU producer consumer queue running on the server. */
         struct ibv_wc wc; /* CQE */
@@ -454,8 +457,8 @@ public:
                         server_info.cpu_gpu_ring_buffer_mr.rkey,    // rkey
                         wc.wr_id);          // wr_id
         
-        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-
+        // while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        ncqes = ibv_poll_cq(cq, 1, &wc);
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
@@ -492,12 +495,14 @@ public:
                     NULL);           
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+         VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+         VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
@@ -516,24 +521,25 @@ public:
 
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+         VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
    
-	printf(" enq end, img: %d",img_id);
+	    printf("enq end, img: %d\n",img_id);
         return true;
     }
 
 
     virtual bool dequeue(int *img_id) override
     {
-	printf(" dq start, img: ?\n");
+	    printf(" dq start, img: ?\n");
 
-	struct ibv_wc wc = {0}; /* CQE */
-        int ncqes;
-        wc.wr_id = 666;
+        struct ibv_wc wc = {0}; /* CQE */
+            int ncqes;
+            wc.wr_id = 666;
 
 	//flow for dnqueue
 	// rdma read gpucpu ring buffer
@@ -546,50 +552,49 @@ public:
                 wc.wr_id);          // wr_id
 
 	    printf(" dequeu: sent first rdma read \n");
-	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-
+	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        printf("got wc-id %lu\n",wc.wr_id);
+        VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
-	    printf(" dequeu:  revc cqe \n");
+	    printf("dequeu:  revc cqe \n");
 
         // check for place
-        if (cpu_gpu_ring_buff._tail != cpu_gpu_ring_buff._head) {
-
-	    printf(" dequeu: gpu cpu empty\n");
+        printf("gpu_cpu_ring_buff._tail - %d\n",gpu_cpu_ring_buff._tail.load());
+        printf("gpu_cpu_ring_buff._head - %d\n", gpu_cpu_ring_buff._head.load());
+        if (gpu_cpu_ring_buff._tail == gpu_cpu_ring_buff._head) {
+	        printf(" dequeu: gpu cpu empty\n");
             return false;
         }
-
-
-	//rdma read mail_box from tail/head? and get img id
+        printf(" dequeu: gpu cpu not empty\n");
+	    //rdma read mail_box from tail/head? and get img id
       	post_rdma_read(
                 &local_request,           // local_src
                 sizeof(local_request),  // len
                 local_request_mr->lkey, // lkey
-                (uint64_t)server_info.gpu_cpu_mail_box_addr + sizeof(local_request)*(gpu_cpu_ring_buff._head%gpu_cpu_ring_buff.N),    // remote_dst
+                (uint64_t)server_info.gpu_cpu_mail_box_addr + sizeof(local_request)*(gpu_cpu_ring_buff._head % gpu_cpu_ring_buff.N),    // remote_dst
                 server_info.gpu_cpu_mail_box_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
-
-	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-
+        printf("!!dequeue image %d!!\n", local_request.imgID);
+	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+         VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
-
-
-
-	//rdma read img from cuda_host img_in[img_id] to our img in
+	    //rdma read img from cuda_host img_in[img_id] to our img in
       	post_rdma_read(
-                _images_out + IMG_SZ*local_request.imgID,           // local_src
+                _images_out + IMG_SZ * local_request.imgID,           // local_src
                 IMG_SZ,  // len
                 mr_images_out->lkey, // lkey
-                (uint64_t)server_info.img_out_addr + IMG_SZ*local_request.imgID,    // remote_dst
+                (uint64_t)server_info.img_out_addr + IMG_SZ * local_request.imgID,    // remote_dst
                 server_info.img_out_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
 
-	while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+         VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
@@ -599,7 +604,7 @@ public:
 	//rdma write cpugpu ring buffer with updated head-tail
   
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-
+         VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
@@ -617,6 +622,7 @@ public:
 
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+         VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
