@@ -255,17 +255,13 @@ private:
    	std::unique_ptr<queue_server> server;
 	struct server_init_info server_info; 
  
-	struct ibv_mr* cpu_gpu_ring_buffer_mr ;
-	struct ibv_mr* cpu_gpu_mail_box_mr ;
-	struct ibv_mr* cpu_gpu_tail_box_mr ;
-	struct ibv_mr* cpu_gpu_head_mr ;
+	struct ibv_mr* cpu_gpu_ring_buffer_mr;
+	struct ibv_mr* cpu_gpu_mail_box_mr;
+	struct ibv_mr* cpu_gpu_tail_mr;
 	
 	struct ibv_mr* gpu_cpu_ring_buffer_mr ;
-	struct ibv_mr* gpu_cpu_mail_box_mr ;
-	struct ibv_mr* gpu_cpu_head_box_mr ;
-	struct ibv_mr* gpu_cpu_tail_box_mr ;
-
-
+	struct ibv_mr* gpu_cpu_mail_box_mr;
+	struct ibv_mr* gpu_cpu_head_mr;
 
     int terminate;
     struct ibv_mr* terminate_mr;
@@ -278,6 +274,9 @@ public:
         terminate = 0;
 
         // create memory regions
+
+        // cpu -gpu
+        //ring buff
         cpu_gpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
         server_info.cpu_gpu_ring_buffer_mr = *cpu_gpu_ring_buffer_mr;
         if (!cpu_gpu_ring_buffer_mr) {
@@ -285,6 +284,7 @@ public:
             exit(1);
         }
 
+        // mail_box
         cpu_gpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
         server_info.cpu_gpu_mail_box_mr = *cpu_gpu_mail_box_mr;
         if (!cpu_gpu_mail_box_mr) {
@@ -292,6 +292,17 @@ public:
             exit(1);
         }
 
+        // tail
+        cpu_gpu_tail_mr = ibv_reg_mr(pd, &server->cpu_to_gpu->_tail, sizeof(server->cpu_to_gpu->_tail), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        server_info.cpu_gpu_tail_mr = *cpu_gpu_tail_mr;
+        if (!cpu_gpu_tail_mr) {
+            perror("ibv_reg_mr() failed for cpu_gpu_mail_box_mr");
+            exit(1);
+        }
+
+         // gpu - cpu
+
+        // ring buff
         gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->gpu_to_cpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
         server_info.gpu_cpu_ring_buffer_mr =*gpu_cpu_ring_buffer_mr;
         if (!gpu_cpu_ring_buffer_mr) {
@@ -299,10 +310,19 @@ public:
             exit(1);
         }
 
+        // mail box
         gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ);
         server_info.gpu_cpu_mail_box_mr = *gpu_cpu_mail_box_mr;
         if (!gpu_cpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_mail_box_mr");
+            exit(1);
+        }
+
+        //head
+        gpu_cpu_head_mr = ibv_reg_mr(pd, &server->gpu_to_cpu->_head, sizeof(server->gpu_to_cpu->_head), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        server_info.gpu_cpu_head_mr = *gpu_cpu_head_mr;
+        if (!gpu_cpu_head_mr) {
+            perror("ibv_reg_mr() failed for cpu_gpu_mail_box_mr");
             exit(1);
         }
 
@@ -314,10 +334,12 @@ public:
 
         server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf;
         server_info.cpu_gpu_mail_box_addr = (uint64_t *)server->cpu_to_gpu->_mailbox;
+        server_info.cpu_gpu_tail_addr = (uint64_t *)&server->cpu_to_gpu->_tail;
 
         // gpu_pcu
         server_info.gpu_cpu_ring_buffer_addr = (uint64_t *)server->gpu_to_cpu_buf;
         server_info.gpu_cpu_mail_box_addr = (uint64_t*)server->gpu_to_cpu->_mailbox;
+        server_info.gpu_cpu_head_addr = (uint64_t*)&server->gpu_to_cpu->_head;
 
         //gpu buffers 
         server_info.img_in_addr =  (uint64_t *)images_in;
@@ -341,6 +363,8 @@ public:
     	ibv_dereg_mr(cpu_gpu_mail_box_mr);
     	ibv_dereg_mr(gpu_cpu_ring_buffer_mr);
     	ibv_dereg_mr(gpu_cpu_mail_box_mr);
+    	ibv_dereg_mr(gpu_cpu_head_mr);
+    	ibv_dereg_mr(cpu_gpu_tail_mr);
     }
 
     virtual void event_loop() override
@@ -353,7 +377,7 @@ public:
         //printf("server event loop: starting to wait to recieve over socket term msg from client\n");
         
         while(1) {
-            usleep(10000000);
+            // usleep(10000000);
             // printf("cpu_gpu_ring_buff._tail - %d\n",server->cpu_to_gpu->_head.load());
             // printf("cpu_gpu_ring_buff._head - %d\n", server->cpu_to_gpu->_head.load());
 

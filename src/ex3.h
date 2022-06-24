@@ -90,11 +90,8 @@ struct server_init_info
     uint64_t* cpu_gpu_ring_buffer_addr;
     struct ibv_mr cpu_gpu_mail_box_mr;
     uint64_t* cpu_gpu_mail_box_addr;
-    struct ibv_mr cpu_gpu_head_mr;
-    uint64_t* cpu_gpu_head_addr;
     struct ibv_mr cpu_gpu_tail_mr;
     uint64_t* cpu_gpu_tail_addr;
-
 
     // gpu_pcu
     struct ibv_mr gpu_cpu_ring_buffer_mr;
@@ -104,8 +101,6 @@ struct server_init_info
     struct ibv_mr gpu_cpu_head_mr;
     uint64_t*  gpu_cpu_head_addr;
 
-    struct ibv_mr  gpu_cpu_tail_mr;
-    uint64_t*  gpu_cpu_tail_addr;
 
 
     //for both
