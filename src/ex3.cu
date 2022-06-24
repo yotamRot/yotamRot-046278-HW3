@@ -257,9 +257,16 @@ private:
  
 	struct ibv_mr* cpu_gpu_ring_buffer_mr ;
 	struct ibv_mr* cpu_gpu_mail_box_mr ;
+	struct ibv_mr* cpu_gpu_tail_box_mr ;
+	struct ibv_mr* cpu_gpu_head_mr ;
 	
 	struct ibv_mr* gpu_cpu_ring_buffer_mr ;
 	struct ibv_mr* gpu_cpu_mail_box_mr ;
+	struct ibv_mr* gpu_cpu_head_box_mr ;
+	struct ibv_mr* gpu_cpu_tail_box_mr ;
+
+
+
     int terminate;
     struct ibv_mr* terminate_mr;
 public:
@@ -347,11 +354,11 @@ public:
         
         while(1) {
             usleep(10000000);
-            printf("cpu_gpu_ring_buff._tail - %d\n",server->cpu_to_gpu->_head.load());
-            printf("cpu_gpu_ring_buff._head - %d\n", server->cpu_to_gpu->_head.load());
+            // printf("cpu_gpu_ring_buff._tail - %d\n",server->cpu_to_gpu->_head.load());
+            // printf("cpu_gpu_ring_buff._head - %d\n", server->cpu_to_gpu->_head.load());
 
-            printf("gpu_cpu_ring_buff._tail - %d\n",server->gpu_to_cpu->_head.load());
-            printf("gpu_cpu_ring_buff._head - %d\n", server->gpu_to_cpu->_head.load());
+            // printf("gpu_cpu_ring_buff._tail - %d\n",server->gpu_to_cpu->_head.load());
+            // printf("gpu_cpu_ring_buff._head - %d\n", server->gpu_to_cpu->_head.load());
 
         }
         while(terminate == 0) {
@@ -501,7 +508,7 @@ public:
         }
     }
 
-//flow for enqueue
+    //flow for enqueue
     // rdma read cpugpu ring buffer
     //check if full(with tain head)
     	//if full return false
@@ -542,8 +549,6 @@ public:
         }
 
         // check for place
-        //printf("cpu_gpu_ring_buff._tail - %d\n",cpu_gpu_ring_buff._tail.load());
-        //printf("cpu_gpu_ring_buff._head - %d\n", cpu_gpu_ring_buff._head.load());
         if (cpu_gpu_ring_buff._tail - cpu_gpu_ring_buff._head == cpu_gpu_ring_buff.N) {
               //printf("no place in cpu-gpu queue\n");
             return false;
@@ -576,6 +581,8 @@ public:
         local_request.imgIn  = (uchar*)(server_info.img_in_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;
         local_request.imgOut = (uchar*)(server_info.img_out_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;
         wc.wr_id = 13;
+        
+        printf("gpu_cpu_ring_buff._tail - %d\n", gpu_cpu_ring_buff._tail.load());
 
        	post_rdma_write(
                     (uint64_t)server_info.cpu_gpu_mail_box_addr + sizeof(request)*(cpu_gpu_ring_buff._tail % cpu_gpu_ring_buff.N),                       // remote_dst
@@ -604,7 +611,7 @@ public:
                         (uint64_t)server_info.cpu_gpu_ring_buffer_addr,                       // remote_dst
                         sizeof(ring_buffer),     // len
                         server_info.cpu_gpu_ring_buffer_mr.rkey,  // rkey
-                        &cpu_gpu_ring_buff ,                // local_src
+                        &cpu_gpu_ring_buff,                // local_src
                         cpu_gpu_ring_buff_mr->lkey,                    // lkey
                         wc.wr_id, // wr_id
                         NULL);           
@@ -620,7 +627,7 @@ public:
                 exit(1);
         }
    
-	    //printf("enq end, img: %d\n",img_id);
+	    printf("enq end, img: %d\n",img_id);
         requests_sent++;
         return true;
     }
@@ -654,11 +661,11 @@ public:
                 exit(1);
         }
         // check for work to dequee
-        printf("gpu_cpu_ring_buff._tail - %d\n", gpu_cpu_ring_buff._tail.load());
-        printf("gpu_cpu_ring_buff._head - %d\n", gpu_cpu_ring_buff._head.load());
+        // printf("gpu_cpu_ring_buff._tail - %d\n", gpu_cpu_ring_buff._tail.load());
+        // printf("gpu_cpu_ring_buff._head - %d\n", gpu_cpu_ring_buff._head.load());
 
         if (gpu_cpu_ring_buff._tail == gpu_cpu_ring_buff._head) {
-	        printf("dequeu: gpu cpu empty\n");
+	        // printf("dequeu: gpu cpu empty\n");
             return false;
         }
         //printf("dequeu: gpu cpu not empty\n");
@@ -668,12 +675,12 @@ public:
                 &local_request,           // local_src
                 sizeof(local_request),  // len
                 local_request_mr->lkey, // lkey
-                (uint64_t)server_info.gpu_cpu_mail_box_addr + sizeof(local_request)*(gpu_cpu_ring_buff._head % gpu_cpu_ring_buff.N),    // remote_dst
+                (uint64_t)server_info.gpu_cpu_mail_box_addr + sizeof(local_request) * (gpu_cpu_ring_buff._head % gpu_cpu_ring_buff.N),    // remote_dst
                 server_info.gpu_cpu_mail_box_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
 
-        //printf("!!dequeue image %d!!\n", local_request.imgID);
 	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        printf("!!dequeue image1 %d!!\n", local_request.imgID);
         //printf("Got wc id %lu\n",wc.wr_id);
          VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
@@ -691,6 +698,7 @@ public:
                 (uint64_t)local_request.imgOut,    // remote_dst
                 server_info.img_out_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
+        printf("!!dequeue image2 %d!!\n", local_request.imgID);
 
 	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
             //printf("Got wc id %lu\n",wc.wr_id);
@@ -722,8 +730,9 @@ public:
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
+            printf("!!dequeue image3 %d!!\n", local_request.imgID);
 
-	//printf("dq end, img: %d \n", local_request.imgID);
+	printf("dq end, img: %d \n", local_request.imgID);
     send_cqes_received++;
     *img_id = local_request.imgID;
      return true;

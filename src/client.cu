@@ -77,7 +77,7 @@ int process_images(mode_enum mode, std::unique_ptr<rdma_client_context>& client)
         int dequeued_img_id;
         if (client->dequeue(&dequeued_img_id)) {
             ++num_dequeued;
-            printf("num_dequeu %lu\n", num_dequeued);
+            // printf("num_dequeu %lu\n", num_dequeued);
             req_t_end[dequeued_img_id % N_IMAGES] = get_time_msec();
         }
         //   usleep(10000);
@@ -92,7 +92,7 @@ int process_images(mode_enum mode, std::unique_ptr<rdma_client_context>& client)
                                          &images_out_gpu[(next_img_id % N_IMAGES) * IMG_WIDTH * IMG_HEIGHT])) {
             
             ++next_img_id;
-            printf("num_enqueu %lu\n", next_img_id);
+            // printf("num_enqueu %lu\n", next_img_id);
         }
 
         // usleep(10000);

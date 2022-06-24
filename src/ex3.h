@@ -90,12 +90,23 @@ struct server_init_info
     uint64_t* cpu_gpu_ring_buffer_addr;
     struct ibv_mr cpu_gpu_mail_box_mr;
     uint64_t* cpu_gpu_mail_box_addr;
+    struct ibv_mr cpu_gpu_head_mr;
+    uint64_t* cpu_gpu_head_addr;
+    struct ibv_mr cpu_gpu_tail_mr;
+    uint64_t* cpu_gpu_tail_addr;
+
 
     // gpu_pcu
     struct ibv_mr gpu_cpu_ring_buffer_mr;
     uint64_t* gpu_cpu_ring_buffer_addr;
     struct ibv_mr gpu_cpu_mail_box_mr;
     uint64_t* gpu_cpu_mail_box_addr;
+    struct ibv_mr gpu_cpu_head_mr;
+    uint64_t*  gpu_cpu_head_addr;
+
+    struct ibv_mr  gpu_cpu_tail_mr;
+    uint64_t*  gpu_cpu_tail_addr;
+
 
     //for both
     struct ibv_mr img_in_mr;
@@ -227,7 +238,7 @@ protected:
 std::unique_ptr<rdma_client_context> create_client(mode_enum mode, uint16_t tcp_port);
 
 // #define N_IMAGES 10000ULL
-#define N_IMAGES 2ULL
+#define N_IMAGES 3ULL
 void print_latency(const char *type, const std::vector<double>& req_t_start, const std::vector<double>& req_t_end);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////

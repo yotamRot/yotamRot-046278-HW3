@@ -165,7 +165,7 @@ class ring_buffer {
 		}; // def contructor
         
 		~ring_buffer()
-        {
+        	{
                 if(_mailbox != NULL)
                 {
                     CUDA_CHECK(cudaFreeHost(_mailbox));
