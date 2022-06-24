@@ -71,7 +71,7 @@ int process_images(mode_enum mode, std::unique_ptr<rdma_client_context>& client)
     t_start = get_time_msec();
     size_t next_img_id = 0;
     size_t num_dequeued = 0;
-    const size_t total_requests = N_IMAGES;
+    const size_t total_requests = N_IMAGES * 3;
 
     while (next_img_id < total_requests || num_dequeued < total_requests) {
         int dequeued_img_id;

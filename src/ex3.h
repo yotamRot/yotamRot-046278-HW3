@@ -232,8 +232,8 @@ protected:
 
 std::unique_ptr<rdma_client_context> create_client(mode_enum mode, uint16_t tcp_port);
 
-// #define N_IMAGES 10000ULL
-#define N_IMAGES 3ULL
+#define N_IMAGES 10000ULL
+// #define N_IMAGES 8193ULL
 void print_latency(const char *type, const std::vector<double>& req_t_start, const std::vector<double>& req_t_end);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
