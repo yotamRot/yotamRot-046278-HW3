@@ -265,6 +265,7 @@ private:
 
     int terminate;
     struct ibv_mr* terminate_mr;
+
 public:
     explicit server_queues_context(uint16_t tcp_port) : rdma_server_context(tcp_port)
     {
@@ -349,7 +350,7 @@ public:
 
 
         server_info.terminate_mr = *terminate_mr;
-        server_info.terminate_addr = (uint64_t *) &terminate;
+        server_info.terminate_addr = (uint64_t *)&terminate;
 
         ////printf("server contructor: sending client mrs and stuff over socket\n");
         send_over_socket(&server_info, sizeof(server_info));
@@ -363,6 +364,7 @@ public:
     	ibv_dereg_mr(cpu_gpu_mail_box_mr);
     	ibv_dereg_mr(gpu_cpu_ring_buffer_mr);
     	ibv_dereg_mr(gpu_cpu_mail_box_mr);
+    	ibv_dereg_mr(terminate_mr);
     }
 
     virtual void event_loop() override
@@ -372,20 +374,12 @@ public:
          * terminate the server at the end. */
 
         // wait for end message;
-        ////printf("server event loop: starting to wait to recieve over socket term msg from client\n");
+        printf("server event loop: starting to wait to recieve over socket term msg from client\n");
         
-        while(1) {
-            usleep(10000000);
-            // //printf("cpu_gpu_ring_buff._tail - %d\n",server->cpu_to_gpu->_head.load());
-            // //printf("cpu_gpu_ring_buff._head - %d\n", server->cpu_to_gpu->_head.load());
 
-            // //printf("gpu_cpu_ring_buff._tail - %d\n",server->gpu_to_cpu->_head.load());
-            // //printf("gpu_cpu_ring_buff._head - %d\n", server->gpu_to_cpu->_head.load());
-
-        }
         while(terminate == 0) {
         }
-        ////printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
+        printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
     }
 };
 
@@ -474,7 +468,11 @@ public:
         ibv_dereg_mr(mr_images_out);
         ibv_dereg_mr(gpu_cpu_head_mr);
         ibv_dereg_mr(cpu_gpu_tail_mr);
-       
+
+        // Ugly but needed
+        gpu_cpu_ring_buff._mailbox = NULL;
+        cpu_gpu_ring_buff._mailbox = NULL;
+
         // kill server
 
         /* step 1: send request to server using Send operation */
@@ -483,8 +481,8 @@ public:
         int ncqes;
         struct ibv_wc wc ={0}; /* CQE */
 
-        ////printf("killing server!\n");
-        int terminate = 10000000;
+        printf("killing server!\n");
+        int terminate = 1;
         // create memory regions
         struct ibv_mr * terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
         if (!terminate_mr) {
@@ -493,12 +491,14 @@ public:
         }
 
          wc.wr_id = 77;
+
+         
         post_rdma_write(
                     (uint64_t)server_info.terminate_addr,                       // remote_dst
                     sizeof(int),     // len
                     server_info.terminate_mr.rkey,  // rkey
-                    &terminate ,                // local_src
-                    terminate_mr->lkey,                    // lkey
+                    &terminate,                // local_src
+                    terminate_mr->lkey,         // lkey
                     wc.wr_id, // wr_id
                     NULL);           
 
@@ -506,17 +506,17 @@ public:
         VERBS_WC_CHECK(wc);
         ////printf("wr-id =  %lu\n", wc.wr_id);
         terminate = 0;
-        ////printf("terminate %d\n", terminate);
-        
-               post_rdma_read(
-                        &terminate,           // local_src
-                        sizeof(int),  // len
-                        terminate_mr->lkey, // lkey
-                        (uint64_t)server_info.terminate_addr,            // remote_dst
-                        server_info.terminate_mr.rkey,  // rkey
-                        wc.wr_id);      
+        printf("terminate %d\n", terminate);
+
+        post_rdma_read(
+                &terminate, // local_src
+                sizeof(int),  // len
+                terminate_mr->lkey, // lkey
+                (uint64_t)server_info.terminate_addr, // remote_dst
+                server_info.terminate_mr.rkey,  // rkey
+                wc.wr_id);      
         VERBS_WC_CHECK(wc);
-        ////printf("terminate %d\n", terminate);
+        printf("terminate %d\n", terminate);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
