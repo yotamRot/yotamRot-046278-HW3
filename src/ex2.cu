@@ -159,22 +159,22 @@ class ring_buffer {
         int N;
         cuda::atomic<int> _head, _tail;
 		ring_buffer()
-		{
-             		_mailbox = NULL;
+		{   
+            _mailbox = NULL;
 			_head = 0, _tail = 0;
 		}; // def contructor
         
 		~ring_buffer()
-        	{
-                	if(_mailbox != NULL)
-			{
-				CUDA_CHECK(cudaFreeHost(_mailbox));
-			}
+        {
+                if(_mailbox != NULL)
+                {
+                    CUDA_CHECK(cudaFreeHost(_mailbox));
+                }
 		} 
 		ring_buffer(int size)
         {
 			 N = size;
-             CUDA_CHECK( cudaMallocHost(&_mailbox, sizeof(request)*N ));
+             CUDA_CHECK(cudaMallocHost(&_mailbox, sizeof(request)*N));
 			_head = 0, _tail = 0;
 		}
 
@@ -299,7 +299,7 @@ public:
     {
         tb_num = calc_max_thread_blocks(threads);//TODO calc from calc_max_thread_blocks
         int ring_buf_size = std::pow(2, std::ceil(std::log(16*tb_num)/std::log(2)));//TODO - calc 2^celling(log2(16*tb_num)/log2(2))
-        
+        ring_buf_size = std::min(ring_buf_size, OUTSTANDING_REQUESTS);
         printf("tb_num %d\n", tb_num);
         printf("ring_buf_size %d\n", ring_buf_size);
 

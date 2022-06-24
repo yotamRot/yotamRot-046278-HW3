@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <unistd.h>
+
 
 #include <infiniband/verbs.h>
 
@@ -58,7 +60,7 @@ public:
 
                     /* Terminate signal */
                     if (req->request_id == -1) {
-                        printf("Terminating...\n");
+                        //printf("Terminating...\n");
                         terminate = true;
                         goto send_rdma_write;
                     }
@@ -92,7 +94,7 @@ public:
 
                     break;
                 default:
-                    printf("Unexpected completion\n");
+                    //printf("Unexpected completion\n");
                     assert(false);
                 }
             }
@@ -224,7 +226,7 @@ public:
             *img_id = wc.imm_data;
             break;
         default:
-            printf("Unexpected completion type\n");
+            //printf("Unexpected completion type\n");
             assert(0);
         }
 
@@ -258,12 +260,15 @@ private:
 	
 	struct ibv_mr* gpu_cpu_ring_buffer_mr ;
 	struct ibv_mr* gpu_cpu_mail_box_mr ;
+    int terminate;
+    struct ibv_mr* terminate_mr;
 public:
     explicit server_queues_context(uint16_t tcp_port) : rdma_server_context(tcp_port)
     {
  
         server = create_queues_server(256);  
         int mail_box_size =  server->cpu_to_gpu->N * sizeof(request);
+        terminate = 0;
 
         // create memory regions
         cpu_gpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
@@ -274,7 +279,7 @@ public:
         }
 
         cpu_gpu_mail_box_mr = ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        server_info.cpu_gpu_mail_box_mr = *ibv_reg_mr(pd, server->cpu_to_gpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        server_info.cpu_gpu_mail_box_mr = *cpu_gpu_mail_box_mr;
         if (!cpu_gpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_mail_box_mr");
             exit(1);
@@ -287,30 +292,40 @@ public:
             exit(1);
         }
 
-        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ);
         server_info.gpu_cpu_mail_box_mr = *gpu_cpu_mail_box_mr;
         if (!gpu_cpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_mail_box_mr");
             exit(1);
         }
 
-    server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf;
-    server_info.cpu_gpu_mail_box_addr = (uint64_t *)server->cpu_to_gpu->_mailbox;
+        terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
+        if (!terminate_mr) {
+            perror("ibv_reg_mr() failed for terminate_mr");
+            exit(1);
+        }
 
-    // gpu_pcu
-    server_info.gpu_cpu_ring_buffer_addr = (uint64_t *)server->gpu_to_cpu_buf;
-    server_info.gpu_cpu_mail_box_addr =  (uint64_t *)server->cpu_to_gpu->_mailbox;
+        server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf;
+        server_info.cpu_gpu_mail_box_addr = (uint64_t *)server->cpu_to_gpu->_mailbox;
 
-     //gpu buffers 
-    server_info.img_in_addr =  (uint64_t *)images_in;
-    server_info.img_in_mr =  *mr_images_in;
-    server_info.img_out_addr = (uint64_t *) images_out;
-    server_info.img_out_mr =  *mr_images_out;
+        // gpu_pcu
+        server_info.gpu_cpu_ring_buffer_addr = (uint64_t *)server->gpu_to_cpu_buf;
+        server_info.gpu_cpu_mail_box_addr = (uint64_t*)server->gpu_to_cpu->_mailbox;
 
-    printf("server contructor: sending client mrs and stuff over socket\n");
-    send_over_socket(&server_info, sizeof(server_info));
-    
-    printf("server contructor: sending client mrs and stuff over socket - completed\n");
+        //gpu buffers 
+        server_info.img_in_addr =  (uint64_t *)images_in;
+        server_info.img_in_mr =  *mr_images_in;
+        server_info.img_out_addr = (uint64_t *) images_out;
+        server_info.img_out_mr =  *mr_images_out;
+
+
+        server_info.terminate_mr = *terminate_mr;
+        server_info.terminate_addr = (uint64_t *) &terminate;
+
+        //printf("server contructor: sending client mrs and stuff over socket\n");
+        send_over_socket(&server_info, sizeof(server_info));
+        
+        //printf("server contructor: sending client mrs and stuff over socket - completed\n");
     }
 
     ~server_queues_context()
@@ -327,16 +342,22 @@ public:
          * client use one sided operations, we only need one kind of message to
          * terminate the server at the end. */
 
-        // wait for end message
-	int end_buf;
-    	printf("server event loop: starting to wait to recieve over socket term msg from client\n");
-	//recv_over_socket(&end_buf,sizeof(int));
-	while(1);
-    	printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
-         
-    }
-           
+        // wait for end message;
+        //printf("server event loop: starting to wait to recieve over socket term msg from client\n");
+        
+        while(1) {
+            usleep(10000000);
+            printf("cpu_gpu_ring_buff._tail - %d\n",server->cpu_to_gpu->_head.load());
+            printf("cpu_gpu_ring_buff._head - %d\n", server->cpu_to_gpu->_head.load());
 
+            printf("gpu_cpu_ring_buff._tail - %d\n",server->gpu_to_cpu->_head.load());
+            printf("gpu_cpu_ring_buff._head - %d\n", server->gpu_to_cpu->_head.load());
+
+        }
+        while(terminate == 0) {
+        }
+        //printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
+    }
 };
 
 class client_queues_context : public rdma_client_context {
@@ -355,6 +376,9 @@ private:
 
     uchar* _images_out;
 
+    uint32_t requests_sent = 0;
+    uint32_t send_cqes_received = 0;
+
 
 public:
     client_queues_context(uint16_t tcp_port) : rdma_client_context(tcp_port)
@@ -363,15 +387,15 @@ public:
          * rkeys / address, or other additional information needed to operate
          * the GPU queues remotely. */
         server_info = {0};
-    	printf("client constructor: waiting for server to send over socket all the mrs and stuff\n");
+    	//printf("client constructor: waiting for server to send over socket all the mrs and stuff\n");
         recv_over_socket(&server_info, sizeof(server_info));
-    	printf("client constructor: recieved from server over socket all server info\n");
-    	printf("%p\n", server_info.cpu_gpu_ring_buffer_addr);
+    	//printf("client constructor: recieved from server over socket all server info\n");
+    	//printf("%p\n", server_info.cpu_gpu_ring_buffer_addr);
         
 
 
          // create memory regions
-        local_request_mr = ibv_reg_mr(pd, &local_request, sizeof(request), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        local_request_mr = ibv_reg_mr(pd, &local_request, sizeof(request), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
         if (!local_request_mr) {
             perror("ibv_reg_mr() failed for request");
             exit(1);
@@ -388,7 +412,7 @@ public:
             perror("ibv_reg_mr() failed for gpu_cpu_ring_buff_mr");
             exit(1);
         }
-    	printf("client constructor: finished constructor\n");
+    	//printf("client constructor: finished constructor\n");
 
 
     }
@@ -401,6 +425,57 @@ public:
         ibv_dereg_mr(gpu_cpu_ring_buff_mr);
         ibv_dereg_mr(mr_images_in);
         ibv_dereg_mr(mr_images_out);
+       
+        // kill server
+
+        /* step 1: send request to server using Send operation */
+
+        /* RDMA send needs a gather element (local buffer)*/
+        int ncqes;
+        struct ibv_wc wc ={0}; /* CQE */
+
+        //printf("killing server!\n");
+        int terminate = 10000000;
+        // create memory regions
+        struct ibv_mr * terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
+        if (!terminate_mr) {
+            perror("ibv_reg_mr() failed for terminate_mr");
+            exit(1);
+        }
+
+         wc.wr_id = 77;
+        post_rdma_write(
+                    (uint64_t)server_info.terminate_addr,                       // remote_dst
+                    sizeof(int),     // len
+                    server_info.terminate_mr.rkey,  // rkey
+                    &terminate ,                // local_src
+                    terminate_mr->lkey,                    // lkey
+                    wc.wr_id, // wr_id
+                    NULL);           
+
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        VERBS_WC_CHECK(wc);
+        //printf("wr-id =  %lu\n", wc.wr_id);
+        terminate = 0;
+        //printf("terminate %d\n", terminate);
+        
+               post_rdma_read(
+                        &terminate,           // local_src
+                        sizeof(int),  // len
+                        terminate_mr->lkey, // lkey
+                        (uint64_t)server_info.terminate_addr,            // remote_dst
+                        server_info.terminate_mr.rkey,  // rkey
+                        wc.wr_id);      
+        VERBS_WC_CHECK(wc);
+        //printf("terminate %d\n", terminate);
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+        ibv_dereg_mr(terminate_mr);
+
     }
 
     virtual void set_input_images(uchar *images_in, size_t bytes) override
@@ -417,7 +492,7 @@ public:
     virtual void set_output_images(uchar *images_out, size_t bytes) override
     {
         // TODO register memory
-	_images_out = images_out;
+	    _images_out = images_out;
         /* register a memory region for the output images. */
         mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
         if (!mr_images_out) {
@@ -436,18 +511,19 @@ public:
 
     virtual bool enqueue(int img_id, uchar *img_in, uchar *img_out) override
     {
-	    printf(" enq start, img: %d\n",img_id);
-
-        if(img_id == -1)
+        if (requests_sent - send_cqes_received == OUTSTANDING_REQUESTS)
         {
-            send_over_socket(&img_id,sizeof(img_id));
+            return false;
         }
+	    //printf("enq start, img: %d\n", img_id);
+
+    
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
          * a CPU-GPU producer consumer queue running on the server. */
         struct ibv_wc wc; /* CQE */
         int ncqes;
 
-        wc.wr_id = img_id;
+        wc.wr_id = 11;
         // Check if there is place in cpu-gpu queue
         post_rdma_read(
                         &cpu_gpu_ring_buff,           // local_src
@@ -457,36 +533,52 @@ public:
                         server_info.cpu_gpu_ring_buffer_mr.rkey,    // rkey
                         wc.wr_id);          // wr_id
         
-        // while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-        ncqes = ibv_poll_cq(cq, 1, &wc);
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        //printf("Got wc id %lu\n",wc.wr_id);
+
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
 
         // check for place
+        //printf("cpu_gpu_ring_buff._tail - %d\n",cpu_gpu_ring_buff._tail.load());
+        //printf("cpu_gpu_ring_buff._head - %d\n", cpu_gpu_ring_buff._head.load());
         if (cpu_gpu_ring_buff._tail - cpu_gpu_ring_buff._head == cpu_gpu_ring_buff.N) {
+              //printf("no place in cpu-gpu queue\n");
             return false;
         }
+        //printf("place in cpu-gpu queue\n");
+
         // Write Image to gpu buffers in sever
+        wc.wr_id = 12;
         post_rdma_write(
-                    (uint64_t)server_info.img_in_addr + img_id*IMG_SZ ,                       // remote_dst
+                    (uint64_t)server_info.img_in_addr + (img_id  % OUTSTANDING_REQUESTS * IMG_SZ) ,                       // remote_dst
                      IMG_SZ,     // len
                     server_info.img_in_mr.rkey,                       // rkey
                      img_in,                // local_src
                     mr_images_in->lkey,                    // lkey
                     wc.wr_id, // wr_id
                     NULL);           
+        //printf("wrote image in cpu-gpu queue\n");
 
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+                //printf("Got wc id %lu\n",wc.wr_id);
 
+        VERBS_WC_CHECK(wc);
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
 
         // Update cpu-gpu queue
-	local_request.imgID  = img_id;
-	local_request.imgIn  = (uchar*)(server_info.img_in_addr) + img_id*IMG_SZ;
-	local_request.imgOut = (uchar*)(server_info.img_out_addr) + img_id*IMG_SZ;
+        local_request.imgID  = img_id;
+        local_request.imgIn  = (uchar*)(server_info.img_in_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;
+        local_request.imgOut = (uchar*)(server_info.img_out_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;
+        wc.wr_id = 13;
 
        	post_rdma_write(
-                    (uint64_t)server_info.cpu_gpu_mail_box_addr + sizeof(request)*(cpu_gpu_ring_buff._tail%cpu_gpu_ring_buff.N),                       // remote_dst
+                    (uint64_t)server_info.cpu_gpu_mail_box_addr + sizeof(request)*(cpu_gpu_ring_buff._tail % cpu_gpu_ring_buff.N),                       // remote_dst
                      sizeof(request),     // len
                     server_info.cpu_gpu_mail_box_mr.rkey,  // rkey
                     &local_request ,                // local_src
@@ -495,32 +587,32 @@ public:
                     NULL);           
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-         VERBS_WC_CHECK(wc);
+        //printf("Got wc id %lu\n",wc.wr_id);
+
+        VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
-        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-         VERBS_WC_CHECK(wc);
 
-        if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
-        }
         // Update head/tail
-	cpu_gpu_ring_buff._tail++;
-   	post_rdma_write(
-                    (uint64_t)server_info.cpu_gpu_ring_buffer_addr,                       // remote_dst
-                    sizeof(ring_buffer),     // len
-                    server_info.cpu_gpu_ring_buffer_mr.rkey,  // rkey
-                    &cpu_gpu_ring_buff ,                // local_src
-                    cpu_gpu_ring_buff_mr->lkey,                    // lkey
-                    wc.wr_id, // wr_id
-                    NULL);           
+        cpu_gpu_ring_buff._tail++;
+                wc.wr_id = 14;
+
+        post_rdma_write(
+                        (uint64_t)server_info.cpu_gpu_ring_buffer_addr,                       // remote_dst
+                        sizeof(ring_buffer),     // len
+                        server_info.cpu_gpu_ring_buffer_mr.rkey,  // rkey
+                        &cpu_gpu_ring_buff ,                // local_src
+                        cpu_gpu_ring_buff_mr->lkey,                    // lkey
+                        wc.wr_id, // wr_id
+                        NULL);           
 
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+                //printf("Got wc id %lu\n",wc.wr_id);
+
          VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
@@ -528,21 +620,23 @@ public:
                 exit(1);
         }
    
-	    printf("enq end, img: %d\n",img_id);
+	    //printf("enq end, img: %d\n",img_id);
+        requests_sent++;
         return true;
     }
 
 
     virtual bool dequeue(int *img_id) override
     {
-	    printf(" dq start, img: ?\n");
+	    //printf("dq start, img: ?\n");
 
         struct ibv_wc wc = {0}; /* CQE */
             int ncqes;
-            wc.wr_id = 666;
+        wc.wr_id = 1;
 
-	//flow for dnqueue
-	// rdma read gpucpu ring buffer
+        //flow for dqueue
+        // rdma read gpucpu ring buffer
+        //printf("dequeu: sent first rdma read \n");
       	post_rdma_read(
                 &gpu_cpu_ring_buff,           // local_src
                 sizeof(ring_buffer),  // len
@@ -551,25 +645,25 @@ public:
                 server_info.gpu_cpu_ring_buffer_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
 
-	    printf(" dequeu: sent first rdma read \n");
-	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-        printf("got wc-id %lu\n",wc.wr_id);
+	    
+	    while ((ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        //printf("Got wc id %lu\n",wc.wr_id);
         VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
-	    printf("dequeu:  revc cqe \n");
-
-        // check for place
-        printf("gpu_cpu_ring_buff._tail - %d\n",gpu_cpu_ring_buff._tail.load());
+        // check for work to dequee
+        printf("gpu_cpu_ring_buff._tail - %d\n", gpu_cpu_ring_buff._tail.load());
         printf("gpu_cpu_ring_buff._head - %d\n", gpu_cpu_ring_buff._head.load());
+
         if (gpu_cpu_ring_buff._tail == gpu_cpu_ring_buff._head) {
-	        printf(" dequeu: gpu cpu empty\n");
+	        printf("dequeu: gpu cpu empty\n");
             return false;
         }
-        printf(" dequeu: gpu cpu not empty\n");
+        //printf("dequeu: gpu cpu not empty\n");
 	    //rdma read mail_box from tail/head? and get img id
+        wc.wr_id = 2;
       	post_rdma_read(
                 &local_request,           // local_src
                 sizeof(local_request),  // len
@@ -577,23 +671,29 @@ public:
                 (uint64_t)server_info.gpu_cpu_mail_box_addr + sizeof(local_request)*(gpu_cpu_ring_buff._head % gpu_cpu_ring_buff.N),    // remote_dst
                 server_info.gpu_cpu_mail_box_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
-        printf("!!dequeue image %d!!\n", local_request.imgID);
+
+        //printf("!!dequeue image %d!!\n", local_request.imgID);
 	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        //printf("Got wc id %lu\n",wc.wr_id);
          VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
+
+         wc.wr_id = 3;
+
 	    //rdma read img from cuda_host img_in[img_id] to our img in
       	post_rdma_read(
-                _images_out + IMG_SZ * local_request.imgID,           // local_src
+                _images_out + IMG_SZ * (local_request.imgID % N_IMAGES),           // local_src
                 IMG_SZ,  // len
                 mr_images_out->lkey, // lkey
-                (uint64_t)server_info.img_out_addr + IMG_SZ * local_request.imgID,    // remote_dst
+                (uint64_t)local_request.imgOut,    // remote_dst
                 server_info.img_out_mr.rkey,    // rkey
                 wc.wr_id);          // wr_id
 
 	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+            //printf("Got wc id %lu\n",wc.wr_id);
          VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
@@ -602,15 +702,9 @@ public:
         }
 
 	//rdma write cpugpu ring buffer with updated head-tail
-  
-        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-         VERBS_WC_CHECK(wc);
-        if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
-        }
         // Update head/tail
 	gpu_cpu_ring_buff._head++;
+      wc.wr_id = 4;
    	post_rdma_write(
                     (uint64_t)server_info.gpu_cpu_ring_buffer_addr,                       // remote_dst
                     sizeof(ring_buffer),     // len
@@ -620,8 +714,8 @@ public:
                     wc.wr_id, // wr_id
                     NULL);           
 
-
-        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        while ((ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+          //printf("Got wc id %lu\n",wc.wr_id);
          VERBS_WC_CHECK(wc);
 
         if (ncqes < 0) {
@@ -629,8 +723,10 @@ public:
                 exit(1);
         }
 
-	printf(" dq end, img: %d \n", local_request.imgID);
-        return true;
+	//printf("dq end, img: %d \n", local_request.imgID);
+    send_cqes_received++;
+    *img_id = local_request.imgID;
+     return true;
     }
 };
 
@@ -642,7 +738,7 @@ std::unique_ptr<rdma_server_context> create_server(mode_enum mode, uint16_t tcp_
     case MODE_QUEUE:
         return std::make_unique<server_queues_context>(tcp_port);
     default:
-        printf("Unknown mode.\n");
+        //printf("Unknown mode.\n");
         exit(1);
     }
 }
@@ -655,7 +751,7 @@ std::unique_ptr<rdma_client_context> create_client(mode_enum mode, uint16_t tcp_
     case MODE_QUEUE:
         return std::make_unique<client_queues_context>(tcp_port);
     default:
-        printf("Unknown mode.\n");
+        //printf("Unknown mode.\n");
         exit(1);
     }
 }

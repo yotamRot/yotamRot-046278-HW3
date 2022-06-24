@@ -103,6 +103,9 @@ struct server_init_info
     struct ibv_mr img_out_mr;
     uint64_t* img_out_addr;
 
+    struct ibv_mr terminate_mr;
+    uint64_t* terminate_addr;
+
 };
 
 
@@ -223,7 +226,8 @@ protected:
 
 std::unique_ptr<rdma_client_context> create_client(mode_enum mode, uint16_t tcp_port);
 
-#define N_IMAGES 10000ULL
+// #define N_IMAGES 10000ULL
+#define N_IMAGES 2ULL
 void print_latency(const char *type, const std::vector<double>& req_t_start, const std::vector<double>& req_t_end);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////

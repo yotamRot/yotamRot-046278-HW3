@@ -71,14 +71,16 @@ int process_images(mode_enum mode, std::unique_ptr<rdma_client_context>& client)
     t_start = get_time_msec();
     size_t next_img_id = 0;
     size_t num_dequeued = 0;
-    const size_t total_requests = N_IMAGES * 3;
+    const size_t total_requests = N_IMAGES;
 
     while (next_img_id < total_requests || num_dequeued < total_requests) {
         int dequeued_img_id;
         if (client->dequeue(&dequeued_img_id)) {
             ++num_dequeued;
+            printf("num_dequeu %lu\n", num_dequeued);
             req_t_end[dequeued_img_id % N_IMAGES] = get_time_msec();
         }
+        //   usleep(10000);
 
         /* If we are done with enqueuing, just loop until all are dequeued */
         if (next_img_id == total_requests)
@@ -88,8 +90,12 @@ int process_images(mode_enum mode, std::unique_ptr<rdma_client_context>& client)
         req_t_start[next_img_id % N_IMAGES] = get_time_msec();
         if (client->enqueue(next_img_id, &images_in[(next_img_id % N_IMAGES) * IMG_WIDTH * IMG_HEIGHT],
                                          &images_out_gpu[(next_img_id % N_IMAGES) * IMG_WIDTH * IMG_HEIGHT])) {
+            
             ++next_img_id;
+            printf("num_enqueu %lu\n", next_img_id);
         }
+
+        // usleep(10000);
     }
     t_finish = get_time_msec();
     distance_sqr = distance_sqr_between_image_arrays(images_out_cpu.get(), images_out_gpu.get());
