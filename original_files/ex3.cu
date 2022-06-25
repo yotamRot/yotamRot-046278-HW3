@@ -708,6 +708,18 @@ public:
                     wc.wr_id, // wr_id
                     NULL);           
 
+        // Update head/tail
+        cpu_gpu_tail = cpu_gpu_ring_buff._tail + 1;
+
+        post_rdma_write(
+                        (uint64_t)server_info.cpu_gpu_tail_addr,                       // remote_dst
+                        sizeof(cpu_gpu_tail),     // len
+                        server_info.cpu_gpu_tail_mr.rkey,  // rkey
+                        &cpu_gpu_tail,                // local_src
+                        cpu_gpu_tail_mr->lkey,                    // lkey
+                        wc.wr_id, // wr_id
+                        NULL);
+        
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
         if (ncqes < 0) {
             perror("ibv_poll_cq() failed");
@@ -723,17 +735,6 @@ public:
         }
         VERBS_WC_CHECK(wc);
 
-        // Update head/tail
-        cpu_gpu_tail = cpu_gpu_ring_buff._tail + 1;
-
-        post_rdma_write(
-                        (uint64_t)server_info.cpu_gpu_tail_addr,                       // remote_dst
-                        sizeof(cpu_gpu_tail),     // len
-                        server_info.cpu_gpu_tail_mr.rkey,  // rkey
-                        &cpu_gpu_tail,                // local_src
-                        cpu_gpu_tail_mr->lkey,                    // lkey
-                        wc.wr_id, // wr_id
-                        NULL);           
 
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
@@ -781,8 +782,6 @@ public:
         }
         VERBS_WC_CHECK(wc);
         // check for work to dequee
-        // //printf("gpu_cpu_ring_buff._tail - %d\n", gpu_cpu_ring_buff._tail.load());
-        // //printf("gpu_cpu_ring_buff._head - %d\n", gpu_cpu_ring_buff._head.load());
 
         if (gpu_cpu_ring_buff._tail == gpu_cpu_ring_buff._head) {
 	        // //printf("dequeu: gpu cpu empty\n");
@@ -817,15 +816,8 @@ public:
                 wc.wr_id);          // wr_id
         //printf("!!dequeue image2 %d!!\n", local_request.imgID);
 
-	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-        ////printf("Got wc id %lu\n",wc.wr_id);
-        if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
-        }
-        VERBS_WC_CHECK(wc);
 
-	//rdma write cpugpu ring buffer with updated head-tail
+        //rdma write cpugpu ring buffer with updated head-tail
         // Update head/tail
 	    gpu_cpu_head =  gpu_cpu_ring_buff._head + 1;
         post_rdma_write(
@@ -837,6 +829,15 @@ public:
                         wc.wr_id, // wr_id
                         NULL);           
 
+     
+	    while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        ////printf("Got wc id %lu\n",wc.wr_id);
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+        VERBS_WC_CHECK(wc);
+     
         while ((ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
           ////printf("Got wc id %lu\n",wc.wr_id);
         if (ncqes < 0) {
