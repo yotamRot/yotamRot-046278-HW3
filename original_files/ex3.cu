@@ -281,6 +281,8 @@ struct server_init_info
     struct ibv_mr gpu_cpu_head_mr;
     uint64_t*  gpu_cpu_head_addr;
 
+
+
     //for both
     struct ibv_mr img_in_mr;
     uint64_t* img_in_addr;
@@ -422,8 +424,7 @@ public:
         
         rpc_request* req;
         struct ibv_wc wc;
-        int ncqes;
-
+         int ncqes;
         bool terminate = false;
 
         while (!terminate) {
@@ -622,7 +623,7 @@ public:
 
         /* WQE */
         memset(&wr, 0, sizeof(struct ibv_send_wr));
-        wr.wr_id = KILL_IMAGE; /* helps identify the WQE */
+        wr.wr_id = (uint64_t)KILL_IMAGE; /* helps identify the WQE */
         wr.sg_list = &sg;
         wr.num_sge = 1;
         wr.opcode = IBV_WR_SEND;
@@ -637,19 +638,19 @@ public:
         
         while (wc.opcode != IBV_WC_RECV_RDMA_WITH_IMM) {
               while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-                        VERBS_WC_CHECK(wc);
-
-                ////printf("Got wc id %lu\n",wc.wr_id);
+                if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+                }
+                VERBS_WC_CHECK(wc);
         }
       
 
           printf("%lu id - \n", wc.wr_id);
           printf(" opcode - %d\n", wc.opcode);
 
-        if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
-        }
+ 
+
        /* TODO terminate the server and release memory regions and other resources */
         ibv_dereg_mr(local_request_mr);
         ibv_dereg_mr(cpu_gpu_ring_buff_mr);
