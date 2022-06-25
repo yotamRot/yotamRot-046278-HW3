@@ -420,7 +420,7 @@ public:
          * terminate the server at the end. */
 
         // wait for end message;
-        printf("server event loop: starting to wait to recieve over socket term msg from client\n");
+        // printf("server event loop: starting to wait to recieve over socket term msg from client\n");
         
         rpc_request* req;
         struct ibv_wc wc;
@@ -463,7 +463,7 @@ public:
         // while(terminate == 0) {
         // }
         
-        printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
+        // printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
     }
 };
 
@@ -556,51 +556,6 @@ public:
         /* RDMA send needs a gather element (local buffer)*/
         int ncqes;
         struct ibv_wc wc ={0}; /* CQE */
-
-        printf("killing server!\n");
-        // int terminate = 1;
-        // // create memory regions
-        // struct ibv_mr * terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
-        // if (!terminate_mr) {
-        //     perror("ibv_reg_mr() failed for terminate_mr");
-        //     exit(1);
-        // }
-
-        //  wc.wr_id = 77;
-
-         
-        // post_rdma_write(
-        //             (uint64_t)server_info.terminate_addr,                       // remote_dst
-        //             sizeof(int),     // len
-        //             server_info.terminate_mr.rkey,  // rkey
-        //             &terminate,                // local_src
-        //             terminate_mr->lkey,         // lkey
-        //             wc.wr_id, // wr_id
-        //             NULL);           
-
-        // while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-        // VERBS_WC_CHECK(wc);
-        // ////printf("wr-id =  %lu\n", wc.wr_id);
-        // terminate = 0;
-        // printf("terminate %d\n", terminate);
-
-        // post_rdma_read(
-        //         &terminate, // local_src
-        //         sizeof(int),  // len
-        //         terminate_mr->lkey, // lkey
-        //         (uint64_t)server_info.terminate_addr, // remote_dst
-        //         server_info.terminate_mr.rkey,  // rkey
-        //         wc.wr_id);      
-        // VERBS_WC_CHECK(wc);
-        // printf("terminate %d\n", terminate);
-
-        // if (ncqes < 0) {
-        //         perror("ibv_poll_cq() failed");
-        //         exit(1);
-        // }
-
-        // ibv_dereg_mr(terminate_mr);
-
          struct ibv_sge sg; /* scatter/gather element */
         struct ibv_send_wr wr; /* WQE */
         struct ibv_send_wr *bad_wr; /* ibv_post_send() reports bad WQEs here */
@@ -646,8 +601,8 @@ public:
         }
       
 
-          printf("%lu id - \n", wc.wr_id);
-          printf(" opcode - %d\n", wc.opcode);
+        //   printf("%lu id - \n", wc.wr_id);
+        //   printf(" opcode - %d\n", wc.opcode);
 
  
 
@@ -709,9 +664,9 @@ public:
         /* TODO use RDMA Write and RDMA Read operations to enqueue the task on
          * a CPU-GPU producer consumer queue running on the server. */
         struct ibv_wc wc; /* CQE */
+        wc.wr_id = img_id;
         int ncqes;
 
-        wc.wr_id = 11;
         // Check if there is place in cpu-gpu queue
         post_rdma_read(
                         &cpu_gpu_ring_buff,           // local_src
@@ -731,13 +686,11 @@ public:
           VERBS_WC_CHECK(wc);
         // check for place
         if (cpu_gpu_ring_buff._tail - cpu_gpu_ring_buff._head == cpu_gpu_ring_buff.N) {
-              ////printf("no place in cpu-gpu queue\n");
             return false;
         }
         ////printf("place in cpu-gpu queue\n");
 
         // Write Image to gpu buffers in sever
-        wc.wr_id = 12;
         post_rdma_write(
                     (uint64_t)server_info.img_in_addr + (img_id  % OUTSTANDING_REQUESTS * IMG_SZ) ,                       // remote_dst
                      IMG_SZ,     // len
@@ -753,9 +706,7 @@ public:
         // Update cpu-gpu queue
         local_request.imgID  = img_id;
         local_request.imgIn  = (uchar*)(server_info.img_in_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;
-        local_request.imgOut = (uchar*)(server_info.img_out_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;
-        wc.wr_id = 13;
-        
+        local_request.imgOut = (uchar*)(server_info.img_out_addr) + img_id % OUTSTANDING_REQUESTS * IMG_SZ;        
 
        	post_rdma_write(
                     (uint64_t)server_info.cpu_gpu_mail_box_addr + sizeof(request)*(cpu_gpu_ring_buff._tail % cpu_gpu_ring_buff.N),                       // remote_dst
@@ -770,16 +721,12 @@ public:
 
         VERBS_WC_CHECK(wc);
         if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
+            perror("ibv_poll_cq() failed");
+            exit(1);
         }
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
                 ////printf("Got wc id %lu\n",wc.wr_id);
-
-     
-
-        ////printf("Got wc id %lu\n",wc.wr_id);
 
         VERBS_WC_CHECK(wc);
 
@@ -789,8 +736,7 @@ public:
         }
 
         // Update head/tail
-        cpu_gpu_tail= cpu_gpu_ring_buff._tail+1;
-                wc.wr_id = 14;
+        cpu_gpu_tail = cpu_gpu_ring_buff._tail + 1;
 
         post_rdma_write(
                         (uint64_t)server_info.cpu_gpu_tail_addr,                       // remote_dst
@@ -823,8 +769,7 @@ public:
 	    ////printf("dq start, img: ?\n");
 
         struct ibv_wc wc = {0}; /* CQE */
-            int ncqes;
-        wc.wr_id = 1;
+        int ncqes;
 
         //flow for dqueue
         // rdma read gpucpu ring buffer
@@ -873,8 +818,6 @@ public:
                 exit(1);
         }
 
-         wc.wr_id = 3;
-
 	    //rdma read img from cuda_host img_in[img_id] to our img in
       	post_rdma_read(
                 _images_out + IMG_SZ * (local_request.imgID % N_IMAGES),           // local_src
@@ -897,7 +840,6 @@ public:
 	//rdma write cpugpu ring buffer with updated head-tail
         // Update head/tail
 	gpu_cpu_head =  gpu_cpu_ring_buff._head + 1;
-      	wc.wr_id = 4;
    	post_rdma_write(
                     (uint64_t)server_info.gpu_cpu_head_addr,                       // remote_dst
                     sizeof(gpu_cpu_head),     // len

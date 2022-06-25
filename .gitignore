@@ -5,5 +5,8 @@
 *.cubin
 *.fatbin
 *.o
-server
-client
+original_files/server
+original_files/client
+src/client
+src/server
+original_files/ex3.o

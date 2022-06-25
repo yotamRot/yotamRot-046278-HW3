@@ -300,8 +300,8 @@ public:
         tb_num = calc_max_thread_blocks(threads);//TODO calc from calc_max_thread_blocks
         int ring_buf_size = std::pow(2, std::ceil(std::log(16*tb_num)/std::log(2)));//TODO - calc 2^celling(log2(16*tb_num)/log2(2))
         ring_buf_size = std::min(ring_buf_size, OUTSTANDING_REQUESTS);
-        printf("tb_num %d\n", tb_num);
-        printf("ring_buf_size %d\n", ring_buf_size);
+        // printf("tb_num %d\n", tb_num);
+        // printf("ring_buf_size %d\n", ring_buf_size);
 
         CUDA_CHECK(cudaMalloc((void**)&server_maps, tb_num * TILE_COUNT * TILE_COUNT * HISTOGRAM_SIZE));
 
