@@ -376,9 +376,50 @@ public:
         // wait for end message;
         printf("server event loop: starting to wait to recieve over socket term msg from client\n");
         
+        rpc_request* req;
+        uchar *img_in;
+        uchar *img_out;
+        struct ibv_wc wc;
 
-        while(terminate == 0) {
+        bool terminate = false, got_last_cqe = false;
+
+        while (!terminate) {
+            // Step 1: Poll for CQE
+            int ncqes = ibv_poll_cq(cq, 1, &wc);
+            if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+            }
+            if (ncqes > 0) {
+		    VERBS_WC_CHECK(wc);
+
+            if (wc.opcode == IBV_WC_RECV) {
+                        /* Received a new request from the client */
+                req = &requests[wc.wr_id];
+                img_in = &images_in[wc.wr_id * IMG_SZ];
+
+                /* Terminate signal */
+                if (req->request_id == KILL_IMAGE) {
+                    ////printf("Terminating...\n");
+                    terminate = true;
+                                    
+                // Step 4: Send RDMA Write with immediate to client with the response
+                    post_rdma_write(
+                            req->output_addr,                       // remote_dst
+                            0,     // len
+                            req->output_rkey,                       // rkey
+                            0,                                      // local_src
+                            mr_images_out->lkey,                    // lkey
+                            KILL_IMAGE, // wr_id
+                            (uint32_t*)&req->request_id);           // immediate
+                  }
+
+                }
+            }
         }
+        // while(terminate == 0) {
+        // }
+        
         printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
     }
 };
@@ -460,7 +501,111 @@ public:
 
     ~client_queues_context()
     {
-        /* TODO terminate the server and release memory regions and other resources */
+     
+
+        // kill server
+
+        /* step 1: send request to server using Send operation */
+
+        /* RDMA send needs a gather element (local buffer)*/
+        int ncqes;
+        struct ibv_wc wc ={0}; /* CQE */
+
+        printf("killing server!\n");
+        // int terminate = 1;
+        // // create memory regions
+        // struct ibv_mr * terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
+        // if (!terminate_mr) {
+        //     perror("ibv_reg_mr() failed for terminate_mr");
+        //     exit(1);
+        // }
+
+        //  wc.wr_id = 77;
+
+         
+        // post_rdma_write(
+        //             (uint64_t)server_info.terminate_addr,                       // remote_dst
+        //             sizeof(int),     // len
+        //             server_info.terminate_mr.rkey,  // rkey
+        //             &terminate,                // local_src
+        //             terminate_mr->lkey,         // lkey
+        //             wc.wr_id, // wr_id
+        //             NULL);           
+
+        // while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+        // VERBS_WC_CHECK(wc);
+        // ////printf("wr-id =  %lu\n", wc.wr_id);
+        // terminate = 0;
+        // printf("terminate %d\n", terminate);
+
+        // post_rdma_read(
+        //         &terminate, // local_src
+        //         sizeof(int),  // len
+        //         terminate_mr->lkey, // lkey
+        //         (uint64_t)server_info.terminate_addr, // remote_dst
+        //         server_info.terminate_mr.rkey,  // rkey
+        //         wc.wr_id);      
+        // VERBS_WC_CHECK(wc);
+        // printf("terminate %d\n", terminate);
+
+        // if (ncqes < 0) {
+        //         perror("ibv_poll_cq() failed");
+        //         exit(1);
+        // }
+
+        // ibv_dereg_mr(terminate_mr);
+
+         struct ibv_sge sg; /* scatter/gather element */
+        struct ibv_send_wr wr; /* WQE */
+        struct ibv_send_wr *bad_wr; /* ibv_post_send() reports bad WQEs here */
+
+        /* step 1: send request to server using Send operation */
+        struct rpc_request *req = &requests[0];
+        req->request_id = KILL_IMAGE;
+        req->input_rkey = 0;
+        req->input_addr = 0;
+        req->input_length = IMG_SZ;
+        req->output_rkey = 0;
+        req->output_addr = 0;
+        req->output_length = IMG_SZ;
+
+        /* RDMA send needs a gather element (local buffer)*/
+        memset(&sg, 0, sizeof(struct ibv_sge));
+        sg.addr = (uintptr_t)req;
+        sg.length = sizeof(*req);
+        sg.lkey = mr_requests->lkey;
+
+        /* WQE */
+        memset(&wr, 0, sizeof(struct ibv_send_wr));
+        wr.wr_id = KILL_IMAGE; /* helps identify the WQE */
+        wr.sg_list = &sg;
+        wr.num_sge = 1;
+        wr.opcode = IBV_WR_SEND;
+        wr.send_flags = IBV_SEND_SIGNALED; /* always set this in this excersize. generates CQE */
+
+        /* post the WQE to the HCA to execute it */
+        if (ibv_post_send(qp, &wr, &bad_wr)) {
+            perror("ibv_post_send() failed");
+            exit(1);
+        }
+
+        
+        while (wc.opcode != IBV_WC_RECV_RDMA_WITH_IMM) {
+              while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+                        VERBS_WC_CHECK(wc);
+
+                ////printf("Got wc id %lu\n",wc.wr_id);
+        }
+      
+
+          printf("%lu id - \n", wc.wr_id);
+          printf(" opcode - %d\n", wc.opcode);
+
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+       /* TODO terminate the server and release memory regions and other resources */
         ibv_dereg_mr(local_request_mr);
         ibv_dereg_mr(cpu_gpu_ring_buff_mr);
         ibv_dereg_mr(gpu_cpu_ring_buff_mr);
@@ -472,58 +617,6 @@ public:
         // Ugly but needed
         gpu_cpu_ring_buff._mailbox = NULL;
         cpu_gpu_ring_buff._mailbox = NULL;
-
-        // kill server
-
-        /* step 1: send request to server using Send operation */
-
-        /* RDMA send needs a gather element (local buffer)*/
-        int ncqes;
-        struct ibv_wc wc ={0}; /* CQE */
-
-        printf("killing server!\n");
-        int terminate = 1;
-        // create memory regions
-        struct ibv_mr * terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
-        if (!terminate_mr) {
-            perror("ibv_reg_mr() failed for terminate_mr");
-            exit(1);
-        }
-
-         wc.wr_id = 77;
-
-         
-        post_rdma_write(
-                    (uint64_t)server_info.terminate_addr,                       // remote_dst
-                    sizeof(int),     // len
-                    server_info.terminate_mr.rkey,  // rkey
-                    &terminate,                // local_src
-                    terminate_mr->lkey,         // lkey
-                    wc.wr_id, // wr_id
-                    NULL);           
-
-        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-        VERBS_WC_CHECK(wc);
-        ////printf("wr-id =  %lu\n", wc.wr_id);
-        terminate = 0;
-        printf("terminate %d\n", terminate);
-
-        post_rdma_read(
-                &terminate, // local_src
-                sizeof(int),  // len
-                terminate_mr->lkey, // lkey
-                (uint64_t)server_info.terminate_addr, // remote_dst
-                server_info.terminate_mr.rkey,  // rkey
-                wc.wr_id);      
-        VERBS_WC_CHECK(wc);
-        printf("terminate %d\n", terminate);
-
-        if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
-        }
-
-        ibv_dereg_mr(terminate_mr);
 
     }
 
@@ -589,7 +682,7 @@ public:
                 perror("ibv_poll_cq() failed");
                 exit(1);
         }
-
+          VERBS_WC_CHECK(wc);
         // check for place
         if (cpu_gpu_ring_buff._tail - cpu_gpu_ring_buff._head == cpu_gpu_ring_buff.N) {
               ////printf("no place in cpu-gpu queue\n");
