@@ -748,14 +748,7 @@ public:
                     NULL);           
         ////printf("wrote image in cpu-gpu queue\n");
 
-        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
-                ////printf("Got wc id %lu\n",wc.wr_id);
-
-        VERBS_WC_CHECK(wc);
-        if (ncqes < 0) {
-                perror("ibv_poll_cq() failed");
-                exit(1);
-        }
+    
 
         // Update cpu-gpu queue
         local_request.imgID  = img_id;
@@ -774,6 +767,18 @@ public:
                     NULL);           
 
         while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+
+        VERBS_WC_CHECK(wc);
+        if (ncqes < 0) {
+                perror("ibv_poll_cq() failed");
+                exit(1);
+        }
+
+        while (( ncqes = ibv_poll_cq(cq, 1, &wc)) == 0) { }
+                ////printf("Got wc id %lu\n",wc.wr_id);
+
+     
+
         ////printf("Got wc id %lu\n",wc.wr_id);
 
         VERBS_WC_CHECK(wc);
