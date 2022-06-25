@@ -309,8 +309,8 @@ private:
 	struct ibv_mr* gpu_cpu_mail_box_mr;
 	struct ibv_mr* gpu_cpu_head_mr;
 
-    int terminate;
-    struct ibv_mr* terminate_mr;
+    // int terminate;
+    // struct ibv_mr* terminate_mr;
 
 public:
     explicit server_queues_context(uint16_t tcp_port) : rdma_server_context(tcp_port)
@@ -318,13 +318,13 @@ public:
  
         server = create_queues_server(256);  
         int mail_box_size =  server->cpu_to_gpu->N * sizeof(request);
-        terminate = 0;
+        // terminate = 0;
 
         // create memory regions
 
         // cpu - gpu
         //ring buff
-        cpu_gpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        cpu_gpu_ring_buffer_mr = ibv_reg_mr(pd, server->cpu_to_gpu_buf, sizeof(ring_buffer), IBV_ACCESS_REMOTE_READ);
         server_info.cpu_gpu_ring_buffer_mr = *cpu_gpu_ring_buffer_mr;
         if (!cpu_gpu_ring_buffer_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_ring_buffer_mr");
@@ -350,7 +350,7 @@ public:
          // gpu - cpu
 
         // ring buff
-        gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->gpu_to_cpu_buf, sizeof(ring_buffer), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        gpu_cpu_ring_buffer_mr = ibv_reg_mr(pd, server->gpu_to_cpu_buf, sizeof(ring_buffer), IBV_ACCESS_REMOTE_READ );
         server_info.gpu_cpu_ring_buffer_mr =*gpu_cpu_ring_buffer_mr;
         if (!gpu_cpu_ring_buffer_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_ring_buffer_mr");
@@ -358,7 +358,7 @@ public:
         }
 
         // mail box
-        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ);
+        gpu_cpu_mail_box_mr = ibv_reg_mr(pd, server->gpu_to_cpu->_mailbox, mail_box_size, IBV_ACCESS_REMOTE_READ);
         server_info.gpu_cpu_mail_box_mr = *gpu_cpu_mail_box_mr;
         if (!gpu_cpu_mail_box_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_mail_box_mr");
@@ -373,11 +373,11 @@ public:
             exit(1);
         }
 
-        terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
-        if (!terminate_mr) {
-            perror("ibv_reg_mr() failed for terminate_mr");
-            exit(1);
-        }
+        // terminate_mr = ibv_reg_mr(pd, &terminate, sizeof(terminate), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
+        // if (!terminate_mr) {
+        //     perror("ibv_reg_mr() failed for terminate_mr");
+        //     exit(1);
+        // }
 
         server_info.cpu_gpu_ring_buffer_addr = (uint64_t *)server->cpu_to_gpu_buf;
         server_info.cpu_gpu_mail_box_addr = (uint64_t *)server->cpu_to_gpu->_mailbox;
@@ -395,8 +395,8 @@ public:
         server_info.img_out_mr =  *mr_images_out;
 
 
-        server_info.terminate_mr = *terminate_mr;
-        server_info.terminate_addr = (uint64_t *)&terminate;
+        // server_info.terminate_mr = *terminate_mr;
+        // server_info.terminate_addr = (uint64_t *)&terminate;
 
         ////printf("server contructor: sending client mrs and stuff over socket\n");
         send_over_socket(&server_info, sizeof(server_info));
@@ -410,7 +410,7 @@ public:
     	ibv_dereg_mr(cpu_gpu_mail_box_mr);
     	ibv_dereg_mr(gpu_cpu_ring_buffer_mr);
     	ibv_dereg_mr(gpu_cpu_mail_box_mr);
-    	ibv_dereg_mr(terminate_mr);
+    	// ibv_dereg_mr(terminate_mr);
     }
 
     virtual void event_loop() override
@@ -460,9 +460,8 @@ public:
                 }
             }
         }
-        // while(terminate == 0) {
-        // }
-        
+
+
         // printf("server event loop: recvd term over socket from client, commiting suicide.. XXX\n");
     }
 };
@@ -515,27 +514,27 @@ public:
             exit(1);
         }
 
-        cpu_gpu_ring_buff_mr = ibv_reg_mr(pd, &cpu_gpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ );
+        cpu_gpu_ring_buff_mr = ibv_reg_mr(pd, &cpu_gpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
         if (!cpu_gpu_ring_buff_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_ring_buff_mr");
             exit(1);
         }
 
-        gpu_cpu_ring_buff_mr = ibv_reg_mr(pd, &gpu_cpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        gpu_cpu_ring_buff_mr = ibv_reg_mr(pd, &gpu_cpu_ring_buff, sizeof(cpu_gpu_ring_buff), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE );
         if (!gpu_cpu_ring_buff_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_ring_buff_mr");
             exit(1);
         }
     	////printf("client constructor: finished constructor\n");
 
-        gpu_cpu_head_mr = ibv_reg_mr(pd, &gpu_cpu_head, sizeof(gpu_cpu_head), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        gpu_cpu_head_mr = ibv_reg_mr(pd, &gpu_cpu_head, sizeof(gpu_cpu_head),IBV_ACCESS_REMOTE_READ );
         if (!gpu_cpu_head_mr) {
             perror("ibv_reg_mr() failed for gpu_cpu_head_mr");
             exit(1);
         }
     	////printf("client constructor: finished constructor\n");
 
-        cpu_gpu_tail_mr = ibv_reg_mr(pd, &cpu_gpu_tail, sizeof(cpu_gpu_tail), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |IBV_ACCESS_REMOTE_READ );
+        cpu_gpu_tail_mr = ibv_reg_mr(pd, &cpu_gpu_tail, sizeof(cpu_gpu_tail), IBV_ACCESS_REMOTE_READ );
         if (!cpu_gpu_tail_mr) {
             perror("ibv_reg_mr() failed for cpu_gpu_tail");
             exit(1);
@@ -632,7 +631,7 @@ public:
         // TODO register memory
 	    _images_out = images_out;
         /* register a memory region for the output images. */
-        mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
+        mr_images_out = ibv_reg_mr(pd, images_out, bytes, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
         if (!mr_images_out) {
             perror("ibv_reg_mr() failed for output images");
             exit(1);
