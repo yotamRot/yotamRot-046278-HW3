@@ -439,7 +439,7 @@ public:
 
             if (wc.opcode == IBV_WC_RECV) {
                         /* Received a new request from the client */
-                req = &requests[wc.wr_id];
+                req = &requests[0];
 
                 /* Terminate signal */
                 if (req->request_id == KILL_IMAGE) {
@@ -577,7 +577,7 @@ public:
 
         /* WQE */
         memset(&wr, 0, sizeof(struct ibv_send_wr));
-        wr.wr_id = (uint64_t)KILL_IMAGE; /* helps identify the WQE */
+        wr.wr_id = (uint64_t)0; /* helps identify the WQE */
         wr.sg_list = &sg;
         wr.num_sge = 1;
         wr.opcode = IBV_WR_SEND;
